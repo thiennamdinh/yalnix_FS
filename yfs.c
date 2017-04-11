@@ -1,5 +1,26 @@
 #include <comp421/iolib.h>
 
+block_wrap *block_head, *block_tail;
+
+inode_wrap *inode_head, *inode_tail;
+
+block_wrap* get_lru_block() {
+
+}
+
+int put_lru_block() {
+
+}
+
+block_wrap* get_lru_inode() {
+
+}
+
+int put_lru_inode() {
+
+}
+
+
 int main(int argc, char** argv){
     return 0;
 }
