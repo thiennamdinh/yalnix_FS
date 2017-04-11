@@ -4,19 +4,19 @@ block_wrap *block_head, *block_tail;
 
 inode_wrap *inode_head, *inode_tail;
 
-block_wrap* get_lru_block() {
+block_wrap* get_lru_block(int block_number) {
 
 }
 
-int put_lru_block() {
+int put_lru_block(block_wrap *block) {
 
 }
 
-block_wrap* get_lru_inode() {
+inode_wrap* get_lru_inode(int block_number) {
 
 }
 
-int put_lru_inode() {
+int put_lru_inode(inode_wrap *inode) {
 
 }
 
