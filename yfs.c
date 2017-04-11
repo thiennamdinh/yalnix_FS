@@ -12,7 +12,7 @@ int put_lru_block(block_wrap *block) {
 
 }
 
-inode_wrap* get_lru_inode(int block_number) {
+inode_wrap* get_lru_inode(int inode_number) {
 
 }
 
