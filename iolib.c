@@ -6,7 +6,43 @@ struct Open_File {
 };
 
 struct Open_File files[MAX_OPEN_FILES];
+
 int num_open_files = 0;
+int files_initialized = 0;
+
+void print_bits_short(uint8_t n){
+    int i;
+    for(i = 0; i < 8; i++){
+	if(n & 128)
+	    printf("1");
+	else
+	    printf("0");
+	n <<=1;
+    }
+}
+
+
+void print_bits_long(uint64_t n){
+    int i;
+    for(i = 0; i < 64; i++){
+	if(n & 9223372036854775808)
+	    printf("1");
+	else
+	    printf("0");
+	n <<=1;
+	if(i % 8 == 7)
+	    printf(" ");
+    }
+}
+
+void Initialize_Files(){
+    int i;
+    for(i = 0; i < MAX_OPEN_FILES; i++){
+	files[i].inode = -1;
+	files[i].position = 0;
+    }
+    files_initialized = 1;
+}
 
 int CallYFS(uint8_t code, void** args, int* arg_sizes, int num_args){
     char msg[MESSAGE_SIZE];
@@ -14,24 +50,26 @@ int CallYFS(uint8_t code, void** args, int* arg_sizes, int num_args){
 
     int i;
     int offset = 1;
+
+
     for(i = 0; i < num_args; i++){
 	// no longs are passed so sizeof(void*) applies exclusively to pointers
         if(arg_sizes[i] == sizeof(void*) && *(void**)args[i] == NULL){
 	    printf("ERROR: null pointer argument provided\n");
 	    return ERROR;
 	}
-	memcpy(msg + offset, (char*)(args[i]), arg_sizes[i]);
+	memcpy(msg + offset, (char**)(args[i]), arg_sizes[i]);
 	offset += arg_sizes[i];
     }
- 
-    Send(msg, -FILE_SYSTEM);
 
+    int success =  Send(msg, -FILE_SYSTEM);
+    printf("success? %d\n", success);
     //----------------------------------------------------------------------------------------
     // pass control to YFS; upon return, msg should be overwritten with single int reply value
     //----------------------------------------------------------------------------------------
 
     int result = *(int*)msg;
-    if(result == -1){
+    if(success == -1 || result == -1){
 	switch(code){
 	case CODE_OPEN:
 	    fprintf(stderr, "ERROR: YFS failed to open file\n"); break;
@@ -71,15 +109,17 @@ int CallYFS(uint8_t code, void** args, int* arg_sizes, int num_args){
 }
 
 int Open(char* pathname){
+    if(!files_initialized)
+	Initialize_Files();
 
     if(num_open_files >= MAX_OPEN_FILES){
 	fprintf(stderr, "ERROR: maximum number of files already open\n");
 	return 0;
     }
-
-    void* args[1] = {(void*)&pathname};
-    int arg_sizes[1] = {sizeof(pathname)};
-    int inode = CallYFS(CODE_OPEN, args, arg_sizes, 1);
+    int pathname_size = strlen(pathname);
+    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
+    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
+    int inode = CallYFS(CODE_OPEN, args, arg_sizes, 2);
 
     int i;
     for(i = 0; i < MAX_OPEN_FILES; i++){
@@ -95,6 +135,8 @@ int Open(char* pathname){
 }
 
 int Close(int fd){
+    if(!files_initialized)
+	Initialize_Files();
 
     if(fd < 0 || fd >= MAX_OPEN_FILES || files[fd].inode == -1){
 	fprintf(stderr, "ERROR: file descriptor is invalid\n");
@@ -103,19 +145,24 @@ int Close(int fd){
 
     files[fd].inode = -1;
     files[fd].position = 0;
+    num_open_files--;
     return 0;
 }
 
 int Create(char *pathname){
+    if(!files_initialized)
+	Initialize_Files();
 
     if(num_open_files >= MAX_OPEN_FILES){
 	fprintf(stderr, "ERROR: maximum number of files already open\n");
 	return 0;
     }
 
-    void* args[1] = {(void*)&pathname};
-    int arg_sizes[1] = {sizeof(pathname)};
-    int inode = CallYFS(CODE_CREATE, args, arg_sizes, 1);
+
+    int pathname_size = strlen(pathname);
+    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
+    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
+    int inode = CallYFS(CODE_CREATE, args, arg_sizes, 2);
 
     int i;
     for(i = 0; i < MAX_OPEN_FILES; i++){
@@ -132,6 +179,8 @@ int Create(char *pathname){
 }
 
 int Read(int fd, void *buf, int size){
+    if(!files_initialized)
+	Initialize_Files();
 
     if(fd < 0 || fd >= MAX_OPEN_FILES || files[fd].inode == -1){
 	fprintf(stderr, "ERROR: file descriptor is invalid\n");
@@ -153,6 +202,8 @@ int Read(int fd, void *buf, int size){
 }
 
 int Write(int fd, void *buf, int size){
+    if(!files_initialized)
+	Initialize_Files();
     
     if(fd < 0 || fd >= MAX_OPEN_FILES || files[fd].inode == -1){
 	fprintf(stderr, "ERROR: file descriptor is invalid\n");
@@ -174,6 +225,8 @@ int Write(int fd, void *buf, int size){
 }
 
 int Seek(int fd, int offset, int whence){
+    if(!files_initialized)
+	Initialize_Files();
 
     if(fd < 0 || fd >= MAX_OPEN_FILES || files[fd].inode == -1){
 	fprintf(stderr, "ERROR: file descriptor is invalid\n");
@@ -191,8 +244,11 @@ int Seek(int fd, int offset, int whence){
 	break;
     case SEEK_END:
 	; // fix a dumb "declaration after statement" C quirk
-	int size = sizeof(files[fd].inode);
-	new_position = CallYFS(CODE_SEEK, (void*)&files[fd].inode, &size, 1) - offset;
+	void* args[1] = {(void*)&files[fd].inode};
+	int* arg_sizes[1] = {sizeof(files[fd].inode)};
+	printf("got here\n");
+	new_position = CallYFS(CODE_SEEK, args, arg_sizes, 1) - offset;
+	printf("new position %d\n", new_position);
 	break;
     default:
 	fprintf(stderr, "ERROR: whence value invalid\n");
@@ -208,51 +264,61 @@ int Seek(int fd, int offset, int whence){
 }
 
 int Link(char *oldname, char *newname){
-    void* args[2] = {(void*)&oldname, (void*)&newname};
-    int arg_sizes[2] = {sizeof(oldname), sizeof(newname)};
-    return CallYFS(CODE_LINK, args, arg_sizes, 2);
+    int oldname_size = strlen(oldname);
+    int newname_size = strlen(newname);
+    void* args[4] = {(void*)&oldname, (void*)&oldname_size, (void*)&newname, (void*)&newname_size};
+    int arg_sizes[4] = {sizeof(oldname),sizeof(oldname_size),sizeof(newname),sizeof(newname_size)};
+    return CallYFS(CODE_LINK, args, arg_sizes, 4);
 }
 
 int Unlink(char *pathname){
-    void* args[1] = {(void*)&pathname};
-    int arg_sizes[1] = {sizeof(pathname)};
-    return CallYFS(CODE_UNLINK, args, arg_sizes, 1);
+    int pathname_size = strlen(pathname);
+    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
+    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
+    return CallYFS(CODE_UNLINK, args, arg_sizes, 2);
 }
 	
 int SymLink(char *oldname, char *newname){
-    void* args[2] = {(void*)&oldname, (void*)&newname};
-    int arg_sizes[2] = {sizeof(oldname), sizeof(newname)};
-    return CallYFS(CODE_SYMLINK, args, arg_sizes, 2);
+    int oldname_size = strlen(oldname);
+    int newname_size = strlen(newname);
+    void* args[4] = {(void*)&oldname, (void*)&oldname_size, (void*)&newname, (void*)&newname_size};
+    int arg_sizes[4] = {sizeof(oldname),sizeof(oldname_size),sizeof(newname),sizeof(newname_size)};
+    return CallYFS(CODE_SYMLINK, args, arg_sizes, 4);
 }
 
 int ReadLink(char *pathname, char *buf, int len){
-    void* args[3] = {(void*)&pathname, (void*)&buf, (void*)&len};
-    int arg_sizes[3] = {sizeof(pathname), sizeof(buf), sizeof(len)};
-    return CallYFS(CODE_READLINK, args, arg_sizes, 3);
+    int pathname_size = strlen(pathname);
+    void* args[4] = {(void*)&pathname, (void*)&pathname_size, (void*)&buf, (void*)&len};
+    int arg_sizes[4] = {sizeof(pathname), sizeof(pathname_size), sizeof(buf), sizeof(len)};
+    return CallYFS(CODE_READLINK, args, arg_sizes, 4);
 }
 
 int MkDir(char *pathname){
-    void* args[1] = {(void*)&pathname};
-    int arg_sizes[1] = {sizeof(pathname)};
-    return CallYFS(CODE_MKDIR, args, arg_sizes, 1);
+    int pathname_size = strlen(pathname);
+    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
+    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
+    return CallYFS(CODE_MKDIR, args, arg_sizes, 2);
 }
 
 int RmDir(char *pathname){
-    void* args[1] = {(void*)&pathname};
-    int arg_sizes[1] = {sizeof(pathname)};
-    return CallYFS(CODE_RMDIR, args, arg_sizes, 1);
+    int pathname_size = strlen(pathname);
+    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
+    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
+    return CallYFS(CODE_RMDIR, args, arg_sizes, 2);
 }
 
 int ChDir(char *pathname){
-    void* args[1] = {(void*)&pathname};
-    int arg_sizes[1] = {sizeof(pathname)};
-    return CallYFS(CODE_CHDIR, args, arg_sizes, 1);
+    int pathname_size = strlen(pathname);
+    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
+    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
+    return CallYFS(CODE_CHDIR, args, arg_sizes, 2);
 }
 
 int Stat(char *pathname, struct Stat* statbuf){
-    void* args[2] = {(void*)&pathname, (void*)&statbuf};
-    int arg_sizes[2] = {sizeof(pathname), sizeof(statbuf)};
-    return CallYFS(CODE_STAT, args, arg_sizes, 2);
+    int pathname_size = strlen(pathname);
+    void* args[3] = {(void*)&pathname, (void*)&pathname_size, (void*)&statbuf};
+    int arg_sizes[3] = {sizeof(pathname), sizeof(pathname_size), sizeof(statbuf)};
+    return CallYFS(CODE_STAT, args, arg_sizes, 3);
 }
 
 int Sync(void){
