@@ -26,7 +26,7 @@
 #	if you have a file named test1.c in this directory.
 #
 
-ALL = yfs iolib.a init
+ALL = yfs iolib.a lib_test
 
 #
 #	You must modify the YFS_OBJS and YFS_SRCS definitions below.

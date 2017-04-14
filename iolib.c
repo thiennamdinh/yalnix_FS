@@ -55,7 +55,7 @@ int CallYFS(uint8_t code, void** args, int* arg_sizes, int num_args){
     for(i = 0; i < num_args; i++){
 	// no longs are passed so sizeof(void*) applies exclusively to pointers
         if(arg_sizes[i] == sizeof(void*) && *(void**)args[i] == NULL){
-	    printf("ERROR: null pointer argument provided\n");
+	    fprintf(stderr, "ERROR: null pointer argument provided\n");
 	    return ERROR;
 	}
 	memcpy(msg + offset, (char**)(args[i]), arg_sizes[i]);
@@ -63,7 +63,7 @@ int CallYFS(uint8_t code, void** args, int* arg_sizes, int num_args){
     }
 
     int success =  Send(msg, -FILE_SYSTEM);
-    printf("success? %d\n", success);
+
     //----------------------------------------------------------------------------------------
     // pass control to YFS; upon return, msg should be overwritten with single int reply value
     //----------------------------------------------------------------------------------------
@@ -245,11 +245,9 @@ int Seek(int fd, int offset, int whence){
     case SEEK_END:
 	; // fix a dumb "declaration after statement" C quirk
 	void* args[1] = {(void*)&files[fd].inode};
-	int* arg_sizes[1] = {sizeof(files[fd].inode)};
-	printf("got here\n");
-	new_position = CallYFS(CODE_SEEK, args, arg_sizes, 1) - offset;
-	printf("new position %d\n", new_position);
-	break;
+	int arg_sizes[1] = {sizeof(files[fd].inode)};
+        new_position = CallYFS(CODE_SEEK, args, arg_sizes, 1) - offset;
+        break;
     default:
 	fprintf(stderr, "ERROR: whence value invalid\n");
     }
