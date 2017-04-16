@@ -209,7 +209,10 @@ void evict_block(){
       //Here should be another method sync to write inode back to the disk.
       sync();
       if(block_front->dirty == 1) {
-         WriteSector(block_front->block_number, (void*)(block_front->data));
+         int sig = WriteSector(block_front->block_number, (void*)(block_front->data));
+         if(sig == 0) {
+         	printf("An error is generated when doing WriteSector.\n");
+         }
       }
       dequeue_block();
       remove_block_from_hashtable(to_be_removed_key);
@@ -380,10 +383,10 @@ block_info* read_block_from_disk(int block_num) {
 // 		block_info* tmp = get_lru_block(block_num);
 // 		if(tmp == NULL) {
 // 			tmp = read_block_from_disk(block_num);
-			
+
 // 		}else{
 // 			//The block is in the cache.
-			
+
 // 		}
 // 	}else{
 // 		return result;
@@ -464,7 +467,7 @@ int sync() {
 				tmp_block->dirty = 0;
 
 			}else{
-				printf("An error is generated when WriteSector.\n");
+				printf("An error is generated when doing WriteSector.\n");
 				return -1;
 			}
 			//Marks the current block to not dirty.
