@@ -9,7 +9,7 @@
 #include <comp421/yalnix.h>
 #include <comp421/hardware.h>
 
-#define SIZE 50
+#define SIZE 100
 #define BLOCKSIZE 32
 #define CACHESIZE 2 // Needs to be modified to another number.
 
@@ -372,6 +372,23 @@ block_info* read_block_from_disk(int block_num) {
 		return result;
 	}
 }
+
+// node_info* read_inode_from_disk(int inode_num) {
+// 	inode_info* result = get_lru_inode(inode_num);
+// 	if(result == NULL) {
+// 		int block_num = calculate_inode_to_block_number(inode_num);
+// 		block_info* tmp = get_lru_block(block_num);
+// 		if(tmp == NULL) {
+// 			tmp = read_block_from_disk(block_num);
+			
+// 		}else{
+// 			//The block is in the cache.
+			
+// 		}
+// 	}else{
+// 		return result;
+// 	}
+// }
 
 
 void set_lru_inode(int inode_num, struct inode_info* input_inode) {
