@@ -207,14 +207,10 @@ void evict_block(){
    if(current_blockcache_number >= BLOCK_CACHESIZE) {
       int to_be_removed_key = block_front->block_number;
       //Here should be another method sync to write inode back to the disk.
-
-
-
-
-
-      // if(block_front->dirty == 1) {
-      //    WriteSector(block_front->block_number, (void*)(block_front->data));
-      // }
+      sync();
+      if(block_front->dirty == 1) {
+         WriteSector(block_front->block_number, (void*)(block_front->data));
+      }
       dequeue_block();
       remove_block_from_hashtable(to_be_removed_key);
       //Decrement the current block cache number by 1.
