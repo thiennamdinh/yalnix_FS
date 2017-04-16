@@ -360,47 +360,68 @@ struct inode_info* get_lru_inode(int inode_num) {
    }
 }
 
-void evict_inode(){
-   //Test whether there is a key to be evict_inodeed.
-   if(current_inodecache_number >= INODE_CACHESIZE) {
-      int to_be_removed_key = inode_front->inode_number;
-      //Here should be another method sync to write inode back to the disk.
+block_info* read_block_from_disk(int block_num) {
+	block_info* result = get_lru_block(block_num);
+	if(result == NULL) {
+		//Reads from the disk.
+		result = (block_info*)malloc(sizeof(block_info));
+		ReadSector(block_num, (void*)(result->data));
+		//Sets the dirty to not dirty
+		result->dirty = 0;
+		set_lru_block(block_num, result);
+		//To obtain the block_info.
+		return get_lru_block(block_num);
 
-      //Should call sync.
-
-
-
-
-      // if(inode_front->dirty == 1) {
-      //    WriteSector(inode_front->inode_number, (void*)(inode_front->data));
-      // }
-      dequeue_inode();
-      remove_inode_from_hashtable(to_be_removed_key);
-
-
-
-      //Decrement the current block cache number by 1.
-      current_inodecache_number--;
-   }
+	}else{
+		return result;
+	}
 }
+
 
 void set_lru_inode(int inode_num, struct inode_info* input_inode) {
    if(get_inode(inode_num) == NULL) {
       //Determines whether a key needs to be removed.
-      evict_inode();
+
+   	   //evicts.
+	   //Test whether there is a key to be evict_inodeed.
+	   if(current_inodecache_number >= INODE_CACHESIZE) {
+	      int to_be_removed_key = inode_front->inode_number;
+	      //Here should be another method sync to write inode back to the disk.
+
+	      //Remove the key from the hashtable
+	      remove_inode_from_hashtable(to_be_removed_key);
+	      //Should call sync.
+	      sync();
+
+	      if(inode_front->dirty == 1) {
+	      	int block_num_to_write = calculate_inode_to_block_number(to_be_removed_key);
+	      	block_info *tmp = read_block_from_disk(block_num_to_write);
+	      	int index = inode_num - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
+	      	memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
+
+	      	tmp->dirty = 1;
+	      }
+
+	      dequeue_inode();
+	      remove_inode_from_hashtable(to_be_removed_key);
+
+
+
+	      //Decrement the current block cache number by 1.
+	      current_inodecache_number--;
+	   }
       enqueue_inode(input_inode);
       put_inode_to_hashtable(inode_num, input_inode);
       current_inodecache_number++;
       return;
    }else{
 
+
       remove_queue_inode(get_inode(inode_num)->inode_data);
       enqueue_inode(input_inode);
       put_inode_to_hashtable(inode_num, input_inode);
-
       return;
    }
-
 }
 
 int sync() {
