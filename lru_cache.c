@@ -4,8 +4,8 @@
 #include <stdbool.h>
 
 #define SIZE 100
-// #define BLOCKSIZE 32
-// #define BLOCK_CACHESIZE 2 // Needs to be modified to another number.
+#define BLOCKSIZE 32
+#define BLOCK_CACHESIZE 2 // Needs to be modified to another number.
 int current_blockcache_number;
 
 
@@ -24,13 +24,13 @@ struct block_wrap {
    int key;
    struct block_info* block_data;
 };
-struct block_info* front;
-struct block_info* rear;
+struct block_info* block_front;
+struct block_info* block_rear;
 
 struct block_wrap* block_hashtable[SIZE]; 
 struct block_wrap* default_block_wrap;
 struct block_info* default_block_info;
-struct block_wrap* item;
+// struct block_wrap* item;
 
 int generate_hash_code(int key) {
    //Hash code generator.
@@ -109,51 +109,51 @@ void print_cache() {
 }
 
 
-void Enqueue_block(struct block_info * x) {
+void enqueue_block(struct block_info * x) {
    //Puts to end.
-   if(front == NULL && rear == NULL){
-      front = rear = x;
-      front->prev = NULL;
-      rear->next = NULL;
+   if(block_front == NULL && block_rear == NULL){
+      block_front = block_rear = x;
+      block_front->prev = NULL;
+      block_rear->next = NULL;
       return;
    }
-   rear->next = x;
-   x->prev = rear;
-   rear = x;
-   rear->next = NULL;
+   block_rear->next = x;
+   x->prev = block_rear;
+   block_rear = x;
+   block_rear->next = NULL;
 }
 
 
-void Dequeue_block() {
-   //Eliminate the front;
-   if(front == NULL) {
+void dequeue_block() {
+   //Eliminate the block_front;
+   if(block_front == NULL) {
       printf("Queue is Empty\n");
       return;
    }
-   if(front == rear) {
-      front = rear = NULL;
+   if(block_front == block_rear) {
+      block_front = block_rear = NULL;
    }else {
-      front->next->prev = NULL;
-      front = front->next;
-      front->prev = NULL;
+      block_front->next->prev = NULL;
+      block_front = block_front->next;
+      block_front->prev = NULL;
    }
 
 }
 
-void remove_queue(struct block_info * x) {
+void remove_queue_block(struct block_info * x) {
    if(x->prev != NULL && x->next != NULL){
       x->prev->next = x->next;
       x->next->prev = x->prev;
    }else if(x->prev != NULL && x->next == NULL) {
-      rear = rear->prev;
-      rear->next = NULL;
+      block_rear = block_rear->prev;
+      block_rear->next = NULL;
    }else if(x->prev == NULL && x->next != NULL) {
-      Dequeue_block();
+      dequeue_block();
    }
 }
 
 void Print() {
-   struct block_info* temp = front;
+   struct block_info* temp = block_front;
    while(temp != NULL) {
       printf("%d\n",temp->block_number);
       temp = temp->next;
@@ -164,8 +164,8 @@ void Print() {
 
 void init() {
    current_blockcache_number = 0;
-   front = NULL;
-   rear = NULL;
+   block_front = NULL;
+   block_rear = NULL;
    default_block_wrap = (struct block_wrap*) malloc(sizeof(struct block_wrap));
    default_block_wrap->key = -1;
 
@@ -179,28 +179,28 @@ struct block_info* get_lru_block(int block_num) {
       return default_block_info;
    }else{
       //Recently used.
-      remove_queue(result->block_data);
-      Enqueue_block(result->block_data);
-      // put_to_front(result);
+      remove_queue_block(result->block_data);
+      enqueue_block(result->block_data);
+      // put_to_block_front(result);
 
       return result->block_data;
    }
 }
 
-void evict(){
-   //Test whether there is a key to be evicted.
+void evict_block(){
+   //Test whether there is a key to be evict_blocked.
    if(current_blockcache_number == BLOCK_CACHESIZE) {
-      int to_be_removed_key = front->block_number;
+      int to_be_removed_key = block_front->block_number;
       //Here should be another method sync to write inode back to the disk.
 
 
 
 
 
-      if(front->dirty == 1) {
-         WriteSector(front->block_number, (void*)(front->data));
-      }
-      Dequeue_block();
+      // if(block_front->dirty == 1) {
+      //    WriteSector(block_front->block_number, (void*)(block_front->data));
+      // }
+      dequeue_block();
       remove_block_from_hashtable(to_be_removed_key);
       //Decrement the current block cache number by 1.
       current_blockcache_number--;
@@ -211,17 +211,32 @@ void set_lru_block(int block_num, struct block_info* input_block) {
    if(get_block(block_num) == NULL) {
       // printf("Key not found\n");
       //Determines whether a key needs to be removed.
-      evict();
-      Enqueue_block(input_block);
+      evict_block();
+      enqueue_block(input_block);
       put_block_to_hashtable(block_num, input_block);
       current_blockcache_number++;
       return;
    }else{
-      printf("Key already in it.\n");
+
+      remove_queue_block(get_block(block_num)->block_data);
+      enqueue_block(input_block);
+      put_block_to_hashtable(block_num, input_block);
+
       return;
    }
 
 }
+
+void clear_lru_block() {
+   int i;
+   for (i = 0;i <SIZE;i++) {
+      block_hashtable[i] = NULL;
+   }
+   block_front = NULL;
+   block_rear = NULL;
+   current_blockcache_number = 0;
+}
+
 
 
 int main() {
@@ -262,61 +277,70 @@ int main() {
    // Print();
 
 
-   // //Test case 1:
-   // printf("----test case 1----\n");
-   // Enqueue_block(x1);
-   // Enqueue_block(x2);
-   // Enqueue_block(x3);
-   // Enqueue_block(x4);
-   // Enqueue_block(x5);
-   // if(front->prev == NULL && rear->next == NULL) {
-   //    printf("There is nothing in front of the linked list and after the linked list.\n");
-   // }
-   // //Prints the list.
-   // Print();
-   // printf("----test case 2----\n");
-   // //Result should be 1, 2, 3, 4, 5
+   //Test case 1:
+   printf("----test case 1----\n");
+   enqueue_block(x1);
+   enqueue_block(x2);
+   enqueue_block(x3);
+   enqueue_block(x4);
+   enqueue_block(x5);
+   if(block_front->prev == NULL && block_rear->next == NULL) {
+      printf("There is nothing in block_front of the linked list and after the linked list.\n");
+   }
+   //Prints the list.
+   Print();
+   printf("----test case 2----\n");
+   //Result should be 1, 2, 3, 4, 5
 
-   // //Test case 2:
-   // Dequeue_block();
-   // if(front->prev == NULL && rear->next == NULL) {
-   //    printf("There is nothing in front of the linked list and after the linked list.\n");
-   // }
+   //Test case 2:
+   dequeue_block();
+   if(block_front->prev == NULL && block_rear->next == NULL) {
+      printf("There is nothing in block_front of the linked list and after the linked list.\n");
+   }
 
-   // Print();
-   // //Result should be 2, 3
-   // //Test case 3;
-   // printf("----test case 3----\n");
-   // remove_queue(front);
-   // if(front->prev == NULL && rear->next == NULL) {
-   //    printf("There is nothing in front of the linked list and after the linked list.\n");
-   // }
-   // Print();
-   // //Result should be 3, 4, 5
-   // printf("----test case 4----\n");
-   // remove_queue(front);
-   // if(front->prev == NULL && rear->next == NULL) {
-   //    printf("There is nothing in front of the linked list and after the linked list.\n");
-   // }
-   // Print();
+   Print();
+   //Result should be 2, 3
+   //Test case 3;
+   printf("----test case 3----\n");
+   remove_queue_block(block_front);
+   if(block_front->prev == NULL && block_rear->next == NULL) {
+      printf("There is nothing in block_front of the linked list and after the linked list.\n");
+   }
+   Print();
+   //Result should be 3, 4, 5
+   printf("----test case 4----\n");
+   remove_queue_block(block_front);
+   if(block_front->prev == NULL && block_rear->next == NULL) {
+      printf("There is nothing in block_front of the linked list and after the linked list.\n");
+   }
+   Print();
 
 
-   // printf("----test case 5----\n");
-   // remove_queue(rear);
-   // if(front->prev == NULL && rear->next == NULL) {
-   //    printf("There is nothing in front of the linked list and after the linked list.\n");
-   // }
-   // Print();
+   printf("----test case 5----\n");
+   remove_queue_block(block_rear);
+   if(block_front->prev == NULL && block_rear->next == NULL) {
+      printf("There is nothing in block_front of the linked list and after the linked list.\n");
+   }
+   Print();
 
-   // printf("----test case 6----\n");
-   // Enqueue_block(x1);
-   // Enqueue_block(x2);
-   // Enqueue_block(x3);
-   // remove_queue(front->next->next);
-   // if(front->prev == NULL && rear->next == NULL) {
-   //    printf("There is nothing in front of the linked list and after the linked list.\n");
-   // }
-   // Print();
+   printf("----test case 6----\n");
+   enqueue_block(x1);
+   enqueue_block(x2);
+   enqueue_block(x3);
+   remove_queue_block(block_front->next->next);
+   if(block_front->prev == NULL && block_rear->next == NULL) {
+      printf("There is nothing in block_front of the linked list and after the linked list.\n");
+   }
+   Print();
 
+   clear_lru_block();
+   printf("----test case 7----\n");
+   set_lru_block(1, x1);
+   set_lru_block(2, x2);
+   printf("goodm\n");
+   printf("%d\n", get_lru_block(1)->block_number);
+   printf("-------------------\n");
+   set_lru_block(1, x3);
+   Print();
 
 }
