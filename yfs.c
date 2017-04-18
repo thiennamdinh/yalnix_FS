@@ -61,8 +61,11 @@ struct inode_info* inode_rear;
 struct inode_wrap* inode_hashtable[SIZE]; 
 struct inode_wrap* default_inode_wrap;
 struct inode_info* default_inode_info;
+//Declare
 int calculate_inode_to_block_number(int inode_number) ;
 struct block_info* read_block_from_disk(int block_num);
+int sync();
+
 
 void init() {
    current_blockcache_number = 0;
@@ -391,7 +394,7 @@ void remove_queue_inode(struct inode_info * x) {
 
 struct inode_info* get_lru_inode(int inode_num) {
    struct inode_wrap* result = get_inode(inode_num);
-   if(result == NULL) {
+   if(result->key == -1) {
       return default_inode_info;
    }else{
       //Recently used.
@@ -405,7 +408,7 @@ struct inode_info* get_lru_inode(int inode_num) {
 
 struct block_info* read_block_from_disk(int block_num) {
 	struct block_info* result = get_lru_block(block_num);
-	if(result == NULL) {
+	if(result->block_number == -1) {
 		//Reads from the disk.
 		result = (struct block_info*)malloc(sizeof(struct block_info));
 		ReadSector(block_num, (void*)(result->data));
@@ -422,10 +425,10 @@ struct block_info* read_block_from_disk(int block_num) {
 
 struct inode_info* read_inode_from_disk(int inode_num) {
 	struct inode_info* result = get_lru_inode(inode_num);
-	if(result == NULL) {
+	if(result->inode_number == -1) {
 		int block_num = calculate_inode_to_block_number(inode_num);
 		struct block_info* tmp = get_lru_block(block_num);
-		if(tmp == NULL) {
+		if(tmp->block_number == -1) {
 			tmp = read_block_from_disk(block_num);
 
 		}else{
@@ -484,7 +487,17 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
 }
 
 
-int convert_pathname_to_inode_number(char *pathname) {
+int convert_pathname_to_inode_number(char *pathname, int len_path, int proc_inum) {
+  if(pathname == NULL ) {
+    return 0;
+  }
+  int cur_inode = proc_inum;
+  if(len_path == 0) {
+    return cur_inode;
+  }
+  char node_name[DIRNAMELEN];
+  memset(node_name,'\0',DIRNAMELEN);
+
 
 }
 
