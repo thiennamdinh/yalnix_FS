@@ -10,7 +10,7 @@
 #include <comp421/hardware.h>
 
 #define SIZE 100
-#define BLOCKSIZE 32
+// #define BLOCKSIZE 32
 #define CACHESIZE 32 // Needs to be modified to another number.
 
 
@@ -201,6 +201,44 @@ struct block_info* get_lru_block(int block_num) {
       return result->block_data;
    }
 }
+int sync() {
+  //Write everything back to the disk. Syncs everything.
+  struct inode_info* tmp_inode = inode_front;
+  struct block_info* tmp_block = block_front;
+
+  while(tmp_inode != NULL) {
+    int inode_number = tmp_inode->inode_number;
+    if(tmp_inode->dirty == 1) {
+      //The value is dirty.
+          int block_num_to_write = calculate_inode_to_block_number(inode_number);
+      //     struct block_info *tmp = read_block_from_disk(block_num_to_write);
+      //     int index = inode_number - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
+      //     memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
+      //     tmp->dirty = 1;
+      // tmp_inode->dirty = 0;
+    }
+    tmp_inode = tmp_inode->next;
+  }
+
+  while(tmp_block != NULL) {
+    if(tmp_block->dirty == 1) {
+      //The block is dirty, so write it back.
+      int sig = WriteSector(tmp_block->block_number, (void*)(tmp_block->data));
+      if(sig == 0) {
+        tmp_block->dirty = 0;
+
+      }else{
+        printf("An error is generated when doing WriteSector.\n");
+        return -1;
+      }
+      //Marks the current block to not dirty.
+      tmp_block->dirty = 0;
+    }
+    tmp_block = tmp_block->next;
+  }
+  return 0;
+}
+
 
 void evict_block(){
    //Test whether there is a key to be evict_blocked.
@@ -359,30 +397,30 @@ struct inode_info* get_lru_inode(int inode_num) {
    }
 }
 
-block_info* read_block_from_disk(int block_num) {
-	block_info* result = get_lru_block(block_num);
-	if(result == NULL) {
-		//Reads from the disk.
-		result = (block_info*)malloc(sizeof(block_info));
-		ReadSector(block_num, (void*)(result->data));
-		//Sets the dirty to not dirty
-		result->dirty = 0;
-		set_lru_block(block_num, result);
-		//To obtain the block_info.
-		return get_lru_block(block_num);
+// struct block_info* read_block_from_disk(int block_num) {
+// 	struct block_info* result = get_lru_block(block_num);
+// 	if(result == NULL) {
+// 		//Reads from the disk.
+// 		result = (struct block_info*)malloc(sizeof(struct block_info));
+// 		ReadSector(block_num, (void*)(result->data));
+// 		//Sets the dirty to not dirty
+// 		result->dirty = 0;
+// 		set_lru_block(block_num, result);
+// 		//To obtain the block_info.
+// 		return get_lru_block(block_num);
 
-	}else{
-		return result;
-	}
-}
+// 	}else{
+// 		return result;
+// 	}
+// }
 
-inode_info* read_inode_from_disk(int inode_num) {
-	inode_info* result = get_lru_inode(inode_num);
+struct inode_info* read_inode_from_disk(int inode_num) {
+	struct inode_info* result = get_lru_inode(inode_num);
 	if(result == NULL) {
 		int block_num = calculate_inode_to_block_number(inode_num);
-		block_info* tmp = get_lru_block(block_num);
+		struct block_info* tmp = get_lru_block(block_num);
 		if(tmp == NULL) {
-			tmp = read_block_from_disk(block_num);
+			// tmp = read_block_from_disk(block_num);
 
 		}else{
 			//The block is in the cache.
@@ -411,11 +449,10 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
 
 	      if(inode_front->dirty == 1) {
 	      	int block_num_to_write = calculate_inode_to_block_number(to_be_removed_key);
-	      	block_info *tmp = read_block_from_disk(block_num_to_write);
-	      	int index = inode_num - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
-	      	memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
-
-	      	tmp->dirty = 1;
+	      	// struct block_info *tmp = read_block_from_disk(block_num_to_write);
+	      	// int index = inode_num - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
+	      	// memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
+	      	// tmp->dirty = 1;
 	      }
 
 	      dequeue_inode();
@@ -440,43 +477,7 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
    }
 }
 
-int sync() {
-	//Write everything back to the disk. Syncs everything.
-	inode_info* tmp_inode = inode_front;
-	block_info* tmp_block = block_front;
 
-	while(tmp_inode != NULL) {
-		int inode_number = tmp_inode->inode_number;
-		if(tmp_inode->dirty == 1) {
-			//The value is dirty.
-	      	int block_num_to_write = calculate_inode_to_block_number(to_be_removed_key);
-	      	block_info *tmp = read_block_from_disk(block_num_to_write);
-	      	int index = inode_num - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
-	      	memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
-	      	tmp->dirty = 1;
-			tmp_inode->dirty = 0;
-		}
-		tmp_inode = tmp_inode->next;
-	}
-
-	while(tmp_block != NULL) {
-		if(tmp_block->dirty == 1) {
-			//The block is dirty, so write it back.
-			int sig = WriteSector(tmp_block->block_number, (void*)(tmp_block->data));
-			if(sig == 0) {
-				tmp_block->dirty = 0;
-
-			}else{
-				printf("An error is generated when doing WriteSector.\n");
-				return -1;
-			}
-			//Marks the current block to not dirty.
-			tmp_block->dirty = 0;
-		}
-		tmp_block = tmp_block->next;
-	}
-	return 0;
-}
 
 int calculate_inode_to_block_number(int inode_number) {
 	return 1 + inode_number / (BLOCKSIZE / INODESIZE);
@@ -488,7 +489,7 @@ int convert_pathname_to_inode_number(char *pathname) {
 }
 
 int FSOpen(char *pathname){
-    
+
     return 0;
 }
 

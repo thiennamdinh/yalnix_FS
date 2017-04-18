@@ -244,16 +244,17 @@ int main() {
    init();
    struct block_info *x1 = (struct block_info*) malloc(sizeof(struct block_info));
    x1->block_number = 1;
+   x1->dirty = 0;
 
    struct block_info *x2 = (struct block_info*) malloc(sizeof(struct block_info));
    x2->block_number = 2;
-
+   x2->dirty = 1;
    struct block_info *x3 = (struct block_info*) malloc(sizeof(struct block_info));
    x3->block_number = 3;
-
+   x3->dirty = 1;
    struct block_info *x4 = (struct block_info*) malloc(sizeof(struct block_info));
    x4->block_number = 4;
-
+   x4->dirty = 1;
    struct block_info *x5 = (struct block_info*) malloc(sizeof(struct block_info));
    x5->block_number = 5;
 
@@ -338,7 +339,9 @@ int main() {
    set_lru_block(1, x1);
    set_lru_block(2, x2);
    printf("goodm\n");
-   printf("%d\n", get_lru_block(1)->block_number);
+   struct block_info* tmp = get_lru_block(1);
+   printf("%d\n", tmp->block_number);
+   printf("%d\n", tmp->dirty);
    printf("-------------------\n");
    set_lru_block(1, x3);
    Print();
