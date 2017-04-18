@@ -483,9 +483,12 @@ int calculate_inode_to_block_number(int inode_number) {
 }
 
 
+int convert_pathname_to_inode_number(char *pathname) {
 
+}
 
 int FSOpen(char *pathname){
+    
     return 0;
 }
 
