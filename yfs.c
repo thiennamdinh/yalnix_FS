@@ -59,6 +59,10 @@ struct inode_info* inode_rear;
 struct inode_wrap* inode_hashtable[SIZE]; 
 struct inode_wrap* default_inode_wrap;
 struct inode_info* default_inode_info;
+//Declare
+int calculate_inode_to_block_number(int inode_number) ;
+struct block_info* read_block_from_disk(int block_num);
+int sync();
 
 
 void init() {
@@ -81,6 +85,12 @@ void init() {
    default_inode_info = (struct inode_info*) malloc(sizeof(struct inode_info));
    default_inode_info->inode_number = -1;
 }
+
+int calculate_inode_to_block_number(int inode_number) {
+  return 1 + (inode_number / (BLOCKSIZE / INODESIZE));
+}
+
+
 
 int generate_hash_code(int key) {
    //Hash code generator.
@@ -209,11 +219,10 @@ int sync() {
     if(tmp_inode->dirty == 1) {
       //The value is dirty.
           int block_num_to_write = calculate_inode_to_block_number(inode_number);
-      //     struct block_info *tmp = read_block_from_disk(block_num_to_write);
-      //     int index = inode_number - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
-      //     memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
-      //     tmp->dirty = 1;
-      // tmp_inode->dirty = 0;
+          struct block_info *tmp = read_block_from_disk(block_num_to_write);
+          memcpy((void*)(tmp->data + (inode_number - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1)) * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
+          tmp->dirty = 1;
+      tmp_inode->dirty = 0;
     }
     tmp_inode = tmp_inode->next;
   }
@@ -383,7 +392,7 @@ void remove_queue_inode(struct inode_info * x) {
 
 struct inode_info* get_lru_inode(int inode_num) {
    struct inode_wrap* result = get_inode(inode_num);
-   if(result == NULL) {
+   if(result->key == -1) {
       return default_inode_info;
    }else{
       //Recently used.
@@ -396,29 +405,29 @@ struct inode_info* get_lru_inode(int inode_num) {
 }
 
 struct block_info* read_block_from_disk(int block_num) {
-// 	struct block_info* result = get_lru_block(block_num);
-// 	if(result == NULL) {
-// 		//Reads from the disk.
-// 		result = (struct block_info*)malloc(sizeof(struct block_info));
-// 		ReadSector(block_num, (void*)(result->data));
-// 		//Sets the dirty to not dirty
-// 		result->dirty = 0;
-// 		set_lru_block(block_num, result);
-// 		//To obtain the block_info.
-// 		return get_lru_block(block_num);
+	struct block_info* result = get_lru_block(block_num);
+	if(result->block_number == -1) {
+		//Reads from the disk.
+		result = (struct block_info*)malloc(sizeof(struct block_info));
+		ReadSector(block_num, (void*)(result->data));
+		//Sets the dirty to not dirty
+		result->dirty = 0;
+		set_lru_block(block_num, result);
+		//To obtain the block_info.
+		return get_lru_block(block_num);
 
-// 	}else{
-// 		return result;
-// 	}
+	}else{
+		return result;
+	}
 }
 
 struct inode_info* read_inode_from_disk(int inode_num) {
 	struct inode_info* result = get_lru_inode(inode_num);
-	if(result == NULL) {
+	if(result->inode_number == -1) {
 		int block_num = calculate_inode_to_block_number(inode_num);
 		struct block_info* tmp = get_lru_block(block_num);
-		if(tmp == NULL) {
-			// tmp = read_block_from_disk(block_num);
+		if(tmp->block_number == -1) {
+			tmp = read_block_from_disk(block_num);
 
 		}else{
 			//The block is in the cache.
@@ -447,10 +456,10 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
 
 	      if(inode_front->dirty == 1) {
 	      	int block_num_to_write = calculate_inode_to_block_number(to_be_removed_key);
-	      	// struct block_info *tmp = read_block_from_disk(block_num_to_write);
-	      	// int index = inode_num - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
-	      	// memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
-	      	// tmp->dirty = 1;
+	      	struct block_info *tmp = read_block_from_disk(block_num_to_write);
+	      	int index = inode_num - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
+	      	memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
+	      	tmp->dirty = 1;
 	      }
 
 	      dequeue_inode();
@@ -476,13 +485,17 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
 }
 
 
+int convert_pathname_to_inode_number(char *pathname, int len_path, int proc_inum) {
+  if(pathname == NULL ) {
+    return 0;
+  }
+  int cur_inode = proc_inum;
+  if(len_path == 0) {
+    return cur_inode;
+  }
+  char node_name[DIRNAMELEN];
+  memset(node_name,'\0',DIRNAMELEN);
 
-int calculate_inode_to_block_number(int inode_number) {
-	return 1 + inode_number / (BLOCKSIZE / INODESIZE);
-}
-
-
-int convert_pathname_to_inode_number(char *pathname) {
 
 }
 
@@ -525,7 +538,7 @@ int get_parent_inum(char* pathname){
     char* parent_path = (char*)malloc(parent_path_len + 1);
     memcpy(parent_path, pathname, parent_path_len);
     parent_path[parent_path_len] = '\0';    
-    short parent_inum = convert_pathname_to_inode_number(parent_path);
+    short parent_inum = convert_pathname_to_inode_number(parent_path, strlen(parent_path), 0);
     free(parent_path);
 
     if(parent_inum == ERROR){
@@ -637,7 +650,7 @@ void init_free(){
 }
 
 int FSOpen(char *pathname){
-    return convert_pathname_to_inode_number(pathname);
+    return convert_pathname_to_inode_number(pathname, strlen(pathname), 0);
 }
 
 int FSCreate(char *pathname){
