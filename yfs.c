@@ -13,8 +13,6 @@
 // #define BLOCKSIZE 32
 #define CACHESIZE 32 // Needs to be modified to another number.
 
-
-
 //Dirty = 1 means it is dirty
 //Dirty = 0 means it is not dirty
 
@@ -397,7 +395,7 @@ struct inode_info* get_lru_inode(int inode_num) {
    }
 }
 
-// struct block_info* read_block_from_disk(int block_num) {
+struct block_info* read_block_from_disk(int block_num) {
 // 	struct block_info* result = get_lru_block(block_num);
 // 	if(result == NULL) {
 // 		//Reads from the disk.
@@ -412,7 +410,7 @@ struct inode_info* get_lru_inode(int inode_num) {
 // 	}else{
 // 		return result;
 // 	}
-// }
+}
 
 struct inode_info* read_inode_from_disk(int inode_num) {
 	struct inode_info* result = get_lru_inode(inode_num);
@@ -488,13 +486,164 @@ int convert_pathname_to_inode_number(char *pathname) {
 
 }
 
-int FSOpen(char *pathname){
+int add_directory_entry(short dir_inum, struct dir_entry new_entry){
+    // parse directory for free entry slots
+    
+    struct inode_info* dir_info = read_inode_from_disk(dir_inum);
+    if(dir_info->inode_number == -1 || dir_info->inode_val->type != INODE_DIRECTORY){
+	fprintf(stderr, "ERROR: not a valid directory inode number\n");
+    }
+    int dir_size = dir_info->inode_val->size;
+    int position = 0;
+    struct dir_entry old_entry;
 
-    return 0;
+    // look for a blank entry in the middle of the directory first and overwrite with new entry
+    while(position < dir_size){
+	FSRead(&old_entry, sizeof(old_entry), dir_inum, position);
+	if(old_entry.inum == 0){
+	    return FSWrite(&new_entry, sizeof(new_entry), dir_inum, position);
+	}
+	position += sizeof(old_entry);
+    }
+    
+    // if none available, write new entry at the end of the file
+    return FSWrite(&new_entry, sizeof(new_entry), dir_inum, position);
+}
+
+int get_parent_inum(char* pathname){
+    // parse backwards and look for last '/'
+    int i;
+    for(i = strlen(pathname) - 1; i >= 0; i--){
+	if(pathname[i] == '/')
+	    break;
+    }
+    if(i < 0)
+	return ERROR;
+    
+    // attempt to get inode of parent directory
+    int parent_path_len = i + 1;
+    char* parent_path = (char*)malloc(parent_path_len + 1);
+    memcpy(parent_path, pathname, parent_path_len);
+    parent_path[parent_path_len] = '\0';    
+    short parent_inum = convert_pathname_to_inode_number(parent_path);
+    free(parent_path);
+
+    if(parent_inum == ERROR){
+	fprintf(stderr, "ERROR: failed to obtain path to parent directory\n");
+	return ERROR;
+    }
+    return parent_inum;
+}
+
+// takes a pathname and returns a pointer to the name of the last file in the path
+// note that the pointer points to a section of the original parameter
+char* get_filename(char* pathname){
+    int i;
+    for(i = strlen(pathname) - 1; i >= 0; i--){
+	if(pathname[i] == '/'){
+	    return pathname + i + 1;
+	}
+    }
+    return NULL;
+}
+
+// creates a new file under the given parent directory
+int create_file(char* filename, short parent_inum, int type){
+    short file_inum;
+
+    // allocate new inode for file
+    int i;
+    for(i = 0; i < NUM_INODES; i++){
+	if(free_inodes[i] == FREE){
+	    file_inum = i;
+	    break;
+	}
+    }
+
+    if(file_inum == NUM_INODES){
+	fprintf(stderr, "ERROR: no more inodes left for new file\n");
+	return ERROR;
+    }
+
+    struct inode* file_inode = read_inode_from_disk(file_inum)->inode_val;
+    file_inode->type = type;
+    file_inode->nlink = 1;
+    file_inode->reuse++;
+    file_inode->size = 0;
+    
+    //TODO: correct way to rewrite inode to disk?
+
+    // create and populate new directory entry
+    struct dir_entry entry;
+    entry.inum = file_inum;
+    int filename_len = strlen(filename);
+    if(filename_len > DIRNAMELEN)
+	filename_len = DIRNAMELEN;
+    memcpy(entry.name, filename, filename_len);
+
+    if(!add_directory_entry(parent_inum, entry)){
+	// undo prior process to create inode for thefile
+	free_inodes[file_inum] = FREE;
+	file_inode->type = INODE_FREE;
+	file_inode->nlink = 0;
+	file_inode->reuse--;
+	
+	fprintf(stderr, "ERROR: failed to add file to directory\n");
+	return ERROR;
+    }
+
+    return file_inum;
+}
+
+void init_free(){
+    
+    // TODO: can read_inode_from_disk handle fs_header like this?
+    struct inode_info* i_info = read_inode_from_disk(0);
+    struct fs_header* header = (struct fs_header*)(i_info->inode_val);
+
+    NUM_INODES = header->num_inodes;
+    NUM_BLOCKS = header->num_blocks;
+
+    free_inodes = (short*)malloc(NUM_INODES * sizeof(short));
+    free_blocks = (short*)malloc(NUM_BLOCKS * sizeof(short));
+
+    free_inodes[0] = TAKEN;  // fs_header inode is also taken   
+    free_blocks[0] = TAKEN;  // boot block is taken
+
+    int i;
+    // loop through all inodes
+    for(i = 1; i < NUM_INODES; i++){
+	struct inode* current_inode = read_inode_from_disk(i)->inode_val;
+	if(current_inode->type == INODE_FREE){
+	    free_blocks[i] = TAKEN;
+
+	    int j = 0;
+	    // loop through direct blocks
+	    while(j < NUM_DIRECT && j * BLOCKSIZE < current_inode->size){
+		free_blocks[current_inode->direct[j]] = TAKEN;
+		j++;		    
+	    }
+
+	    // if file still has more blocks, explore indirect block as well
+	    if(j * BLOCKSIZE < current_inode->size){
+		int* indirect_block = (int*)(read_block_from_disk(current_inode->indirect)->data);
+		while(j * BLOCKSIZE < current_inode->size){
+		    free_blocks[indirect_block[j - NUM_DIRECT]] = TAKEN;
+		    j++;
+		}
+	    }
+	}
+    }
+}
+
+int FSOpen(char *pathname){
+    return convert_pathname_to_inode_number(pathname);
 }
 
 int FSCreate(char *pathname){
-    return 0;
+    short parent_inum = get_parent_inum(pathname);
+    char* filename = get_filename(pathname);
+    return create_file(filename, parent_inum, INODE_REGULAR);
 }
 
 int FSRead(void *buf, int size, short inode, int position){
@@ -505,8 +654,15 @@ int FSWrite(void *buf, int size, short inode, int position){
     return 0;
 }
 
+// This just returns the size of a given file... it's only necessary for a particular case of
+// seek in the iolib
 int FSSeek(short inode){
-    return 500;
+    struct inode_info* info = read_inode_from_disk(inode);
+    if(info->inode_number == -1){
+	fprintf(stderr, "ERROR: not a valid inode number\n");
+	return ERROR;
+    }
+    return info->inode_val->size;
 }
 
 int FSLink(char *oldname, char *newname){
@@ -518,7 +674,14 @@ int FSUnlink(char *pathname){
 }
 
 int FSSymLink(char *oldname, char *newname){
-    return 0;
+    short parent_inum = get_parent_inum(newname);
+    char* filename = get_filename(newname);
+    short inum = create_file(filename, parent_inum, INODE_SYMLINK);
+    if(inum == ERROR)
+	return ERROR;
+
+    int result = FSWrite((void*)oldname, strlen(oldname), inum, 0);
+    return result;
 }
 
 int FSReadLink(char *pathname, char *buf, int len){
@@ -526,6 +689,29 @@ int FSReadLink(char *pathname, char *buf, int len){
 }
 
 int FSMkDir(char *pathname){
+
+    short parent_inum = get_parent_inum(pathname);
+    char* filename = get_filename(pathname);
+    short inum = create_file(filename, parent_inum, INODE_REGULAR);
+    if(inum == ERROR)
+	return ERROR;
+
+    struct dir_entry dot;
+    struct dir_entry dotdot;
+    
+    char* strdot = ".";
+    memcpy(dot.name, strdot, strlen(strdot));
+    dot.name[strlen(strdot)] = '\0';
+    dot.inum = inum;
+
+    char* strdotdot = "..";
+    memcpy(dotdot.name, strdotdot, strlen(strdotdot));
+    dotdot.name[strlen(strdotdot)] = '\0';
+    dotdot.inum = parent_inum;
+
+    add_directory_entry(inum, dot);
+    add_directory_entry(inum, dotdot);
+
     return 0;
 }
 
@@ -740,6 +926,8 @@ int main(int argc, char** argv){
     }
 
     Register(FILE_SERVER);
+    init();
+    init_free();
 
     // stand by and simply route messages from here on out
     while(1){

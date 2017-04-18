@@ -32,6 +32,16 @@
 #define CODE_SYNC 15
 #define CODE_SHUTDOWN 16
 
+#define FREE 0
+#define TAKEN 1
+
+int NUM_INODES;
+int NUM_BLOCKS;
+
+short* free_inodes;
+short* free_blocks;
+
+
 /* commenting out because compiler is complainting about redefinition
 //Block
 typedef struct block_wrap {
@@ -63,3 +73,21 @@ typedef struct inode_hash_table{
 } inode_hash_table;
 */
 #endif /*!_yfs_h*/
+
+
+int FSOpen(char *pathname);
+int FSCreate(char *pathname);
+int FSRead(void *buf, int size, short inode, int position);
+int FSWrite(void *buf, int size, short inode, int position);
+int FSSeek(short inode);
+int FSLink(char *oldname, char *newname);
+int FSUnlink(char *pathname);
+int FSSymLink(char *oldname, char *newname);
+int FSReadLink(char *pathname, char *buf, int len);
+int FSMkDir(char *pathname);
+int FSRmDir(char *pathname);
+int FSChDir(char *pathname);
+int FSStat(char *pathname, struct Stat* statbuf);
+int FSSync(void);
+int FSShutdown(void);
+int Redirect_Call(char* msg, int pid);
