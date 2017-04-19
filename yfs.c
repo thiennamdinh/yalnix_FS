@@ -546,6 +546,7 @@ int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
         }
       }
     }
+    return cur_inode;
   }
 
 
