@@ -422,20 +422,20 @@ struct block_info* read_block_from_disk(int block_num) {
 }
 
 struct inode_info* read_inode_from_disk(int inode_num) {
-	struct inode_info* result = get_lru_inode(inode_num);
-	if(result->inode_number == -1) {
-		int block_num = calculate_inode_to_block_number(inode_num);
-		struct block_info* tmp = get_lru_block(block_num);
-		if(tmp->block_number == -1) {
-			tmp = read_block_from_disk(block_num);
-
-		}else{
-			//The block is in the cache.
-
-		}
-	}else{
-		return result;
-	}
+  struct inode_info* result = get_lru_inode(inode_num);
+  if(result->inode_number == -1) {
+    int block_num = calculate_inode_to_block_number(inode_num);
+    struct block_info* tmp = get_lru_block(block_num);
+    if(tmp->block_number == -1) {
+      tmp = read_block_from_disk(block_num);
+    }
+    result = (struct inode_info*) malloc(sizeof(struct inode_info));
+    result->inode_number = inode_num;
+    result->dirty = 0;
+    memcpy(&(result->inode_val), tmp->data+(inode_num-(block_num-1)*(BLOCKSIZE/INODESIZE)) * INODESIZE, INODESIZE);
+    set_lru_inode(inode_num, result);
+  }
+  return result;
 }
 
 
@@ -485,16 +485,119 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
 }
 
 
-int convert_pathname_to_inode_number(char *pathname, int len_path, int proc_inum) {
-  if(pathname == NULL ) {
-    return 0;
+
+int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
+    if(pathname == NULL ) {
+      return 0;
+    }
+    int cur_inode;
+    char node_name[DIRNAMELEN];
+    memset(node_name,'\0',DIRNAMELEN);
+    int sym_link_cnt = 0;
+    if(pathname[0] == '/') {
+      cur_inode = ROOTINODE;
+    }else{
+      cur_inode = proc_inum;
+    }
+
+    //Means that it is an absolute pathname, so it starts with ROOTINODE.
+    //Kills all the slaches.
+    while(strlen(pathname) != 0) {
+      int len_path = strlen(pathname);
+      while(len_path>0 && *pathname=='/') {
+          pathname++;
+          len_path--;
+      }
+      int i = 0;
+      while(len_path>0 && *pathname!= '/') {
+        node_name[i] = *pathname;
+        i++;
+        pathname++;
+        len_path--;
+      }
+      struct inode_info* n;
+      int sub_inum = check_dir(cur_inode, node_name);
+
+      if (sub_inum<=0) {
+          return -1;
+      }
+      n = read_inode_from_disk(sub_inum);
+      //If the sub inode is a symbolic link.
+      if(n->inode_val->type == INODE_SYMLINK) {
+        if(sym_link_cnt >= MAXSYMLINKS) {
+          return -1;
+        }else{
+          int data_size = n->inode_val->size;
+          char* new_pathname = (char*) malloc(sizeof(char) * data_size + len_path + 1);
+          struct block_info* b = read_block_from_disk(n->inode_val->direct[0]);
+          memcpy(new_pathname, b->data, data_size);
+          
+          strcat(new_pathname, "///");
+          strcat(new_pathname, pathname);
+          pathname = new_pathname;
+
+          // char *t1 = new_pathname+data_size;
+          // *t1 = '/';
+          // t1++;
+          // //Pathname is extended.
+          // memcpy(t1, pathname, len_path);
+          sym_link_cnt++;
+        }
+      }
+    }
   }
-  int cur_inode = proc_inum;
-  if(len_path == 0) {
-    return cur_inode;
+
+
+int check_dir(int direct_inum, char* filename) {
+  struct inode_info* dir = read_inode_from_disk(direct_inum);
+  if(dir->inode_val->type!= INODE_DIRECTORY) {
+    printf("This is not a directory.\n");
+    return -1;
+  }else{
+    int i, block_num;
+    for(i=0;i<NUM_DIRECT;i++) {
+      if(dir->inode_val->direct[i] <= 0) {
+        break;
+      }else{
+        block_num = dir->inode_val->direct[i];
+        struct block_info* b = read_block_from_disk(block_num);
+        struct dir_entry *d = (struct dir_entry*)(b->data);
+        int j;
+        for(j=0;j<NUM_DIRS_PER_BLOCK;j++) {
+          if(d[j].inum<=0){
+            continue;
+          }
+          if(strcmp(d[j].name, filename) == 0) {
+            return d[j].inum;
+          }
+        }
+      }
+    }
+
+    if(dir->inode_val->indirect != 0) {
+      block_num = dir->inode_val->indirect;
+      struct block_info* b = read_block_from_disk(block_num);
+      int j;
+      struct block_info* tmp;
+      for(j=0;j<BLOCKSIZE;j+=4) {
+        block_num = *(int*)(b->data+j);
+        if(block_num!=0) {
+          tmp = read_block_from_disk(block_num);
+          struct dir_entry *d = (struct dir_entry*)(tmp->data);
+          int k;
+          for(k=0;k<NUM_DIRS_PER_BLOCK;k++) {
+            if(d[j].inum<=0) continue;
+            if(strcmp(d[j].name, filename) == 0) {
+              return d[j].inum;
+            }
+          }
+        }else{
+          break;
+        }
+      }
+    }
   }
-  char node_name[DIRNAMELEN];
-  memset(node_name,'\0',DIRNAMELEN);
+  return 0;
 }
 
 // allocate space for the file_inode to hold up to "newsize" data
