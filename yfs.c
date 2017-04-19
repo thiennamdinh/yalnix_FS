@@ -654,7 +654,7 @@ int add_directory_entry(short dir_inum, struct dir_entry new_entry){
     return FSWrite(&new_entry, sizeof(new_entry), dir_inum, position);
 }
 
-int get_parent_inum(char* pathname){
+int get_parent_inum(char* pathname, short current_dir){
     // parse backwards and look for last '/'
     int i;
     for(i = strlen(pathname) - 1; i >= 0; i--){
@@ -669,7 +669,7 @@ int get_parent_inum(char* pathname){
     char* parent_path = (char*)malloc(parent_path_len + 1);
     memcpy(parent_path, pathname, parent_path_len);
     parent_path[parent_path_len] = '\0';    
-    short parent_inum = convert_pathname_to_inode_number(parent_path, strlen(parent_path), 0);
+    short parent_inum = convert_pathname_to_inode_number(parent_path, current_dir);
     free(parent_path);
 
     if(parent_inum == ERROR){
@@ -781,11 +781,11 @@ void init_free(){
 }
 
 int FSOpen(char *pathname, short current_dir){
-    return convert_pathname_to_inode_number(pathname, strlen(pathname), 0);
+    return convert_pathname_to_inode_number(pathname, current_dir);
 }
 
 int FSCreate(char *pathname, short current_dir){
-    short parent_inum = get_parent_inum(pathname);
+    short parent_inum = get_parent_inum(pathname, current_dir);
     char* filename = get_filename(pathname);
     return create_file(filename, parent_inum, INODE_REGULAR);
 }
@@ -872,7 +872,7 @@ int FSUnlink(char *pathname, short current_dir){
 }
 
 int FSSymLink(char *oldname, char *newname, short current_dir){
-    short parent_inum = get_parent_inum(newname);
+    short parent_inum = get_parent_inum(newname, current_dir);
     char* filename = get_filename(newname);
     short inum = create_file(filename, parent_inum, INODE_SYMLINK);
     if(inum == ERROR)
@@ -888,7 +888,7 @@ int FSReadLink(char *pathname, char *buf, int len, short current_dir){
 
 int FSMkDir(char *pathname, short current_dir){
 
-    short parent_inum = get_parent_inum(pathname);
+    short parent_inum = get_parent_inum(pathname, current_dir);
     char* filename = get_filename(pathname);
     short inum = create_file(filename, parent_inum, INODE_REGULAR);
     if(inum == ERROR)
