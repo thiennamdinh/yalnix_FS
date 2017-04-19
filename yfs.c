@@ -15,6 +15,7 @@
 
 //Dirty = 1 means it is dirty
 //Dirty = 0 means it is not dirty
+int NUM_DIRS_PER_BLOCK = BLOCKSIZE / sizeof(struct dir_entry);
 
 //Block variables:
 int current_blockcache_number;
