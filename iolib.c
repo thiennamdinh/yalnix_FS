@@ -1,5 +1,11 @@
 #include "yfs.h"
 
+// TODO: clean pathnames before passing to YFS
+//     take care of "//"
+//     make sure less than MAXPATHNAMELEN
+
+// TODO: enable relative path names by tracking current directory and sending inode to YFS
+
 struct Open_File {
     short inode;
     int position;
@@ -9,6 +15,7 @@ struct Open_File files[MAX_OPEN_FILES];
 
 int num_open_files = 0;
 int files_initialized = 0;
+short current_dir = 0;
 
 void print_bits_short(uint8_t n){
     int i;
@@ -117,9 +124,9 @@ int Open(char* pathname){
 	return 0;
     }
     int pathname_size = strlen(pathname);
-    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
-    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
-    int inode = CallYFS(CODE_OPEN, args, arg_sizes, 2);
+    void* args[3] = {(void*)&pathname, (void*)&pathname_size, (void*)&current_dir};
+    int arg_sizes[3] = {sizeof(pathname), sizeof(pathname_size, sizeof(current_dir))};
+    int inode = CallYFS(CODE_OPEN, args, arg_sizes, 3);
 
     int i;
     for(i = 0; i < MAX_OPEN_FILES; i++){
@@ -160,9 +167,9 @@ int Create(char *pathname){
 
 
     int pathname_size = strlen(pathname);
-    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
-    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
-    int inode = CallYFS(CODE_CREATE, args, arg_sizes, 2);
+    void* args[3] = {(void*)&pathname, (void*)&pathname_size, (void*)&current_dir};
+    int arg_sizes[3] = {sizeof(pathname), sizeof(pathname_size, sizeof(current_dir))};
+    int inode = CallYFS(CODE_CREATE, args, arg_sizes, 3);
 
     int i;
     for(i = 0; i < MAX_OPEN_FILES; i++){
@@ -264,38 +271,44 @@ int Seek(int fd, int offset, int whence){
 int Link(char *oldname, char *newname){
     int oldname_size = strlen(oldname);
     int newname_size = strlen(newname);
-    void* args[4] = {(void*)&oldname, (void*)&oldname_size, (void*)&newname, (void*)&newname_size};
-    int arg_sizes[4] = {sizeof(oldname),sizeof(oldname_size),sizeof(newname),sizeof(newname_size)};
-    return CallYFS(CODE_LINK, args, arg_sizes, 4);
+    void* args[5] = {(void*)&oldname, (void*)&oldname_size, (void*)&newname,
+		     (void*)&newname_size, (void*)&current_dir};
+    int arg_sizes[5] = {sizeof(oldname), sizeof(oldname_size), sizeof(newname), 
+			sizeof(newname_size), sizeof(current_dir)};
+    return CallYFS(CODE_LINK, args, arg_sizes, 5);
 }
 
 int Unlink(char *pathname){
     int pathname_size = strlen(pathname);
-    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
-    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
-    return CallYFS(CODE_UNLINK, args, arg_sizes, 2);
+    void* args[3] = {(void*)&pathname, (void*)&pathname_size, (void*)&current_dir};
+    int arg_sizes[3] = {sizeof(pathname), sizeof(pathname_size, sizeof(current_dir))};
+    return CallYFS(CODE_UNLINK, args, arg_sizes, 3);
 }
 	
 int SymLink(char *oldname, char *newname){
     int oldname_size = strlen(oldname);
     int newname_size = strlen(newname);
-    void* args[4] = {(void*)&oldname, (void*)&oldname_size, (void*)&newname, (void*)&newname_size};
-    int arg_sizes[4] = {sizeof(oldname),sizeof(oldname_size),sizeof(newname),sizeof(newname_size)};
-    return CallYFS(CODE_SYMLINK, args, arg_sizes, 4);
+    void* args[5] = {(void*)&oldname, (void*)&oldname_size, (void*)&newname,
+		     (void*)&newname_size, (void*)current_dir};
+    int arg_sizes[5] = {sizeof(oldname), sizeof(oldname_size), sizeof(newname),
+			sizeof(newname_size), sizeof(current_dir)};
+    return CallYFS(CODE_SYMLINK, args, arg_sizes, 5);
 }
 
 int ReadLink(char *pathname, char *buf, int len){
     int pathname_size = strlen(pathname);
-    void* args[4] = {(void*)&pathname, (void*)&pathname_size, (void*)&buf, (void*)&len};
-    int arg_sizes[4] = {sizeof(pathname), sizeof(pathname_size), sizeof(buf), sizeof(len)};
-    return CallYFS(CODE_READLINK, args, arg_sizes, 4);
+    void* args[5] = {(void*)&pathname, (void*)&pathname_size, (void*)&buf, (void*)&len,
+		     (void*)current_dir};
+    int arg_sizes[5] = {sizeof(pathname), sizeof(pathname_size), sizeof(buf), sizeof(len),
+			sizeof(current_dir)};
+    return CallYFS(CODE_READLINK, args, arg_sizes, 5);
 }
 
 int MkDir(char *pathname){
     int pathname_size = strlen(pathname);
-    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
-    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
-    return CallYFS(CODE_MKDIR, args, arg_sizes, 2);
+    void* args[3] = {(void*)&pathname, (void*)&pathname_size, (void*)&current_dir};
+    int arg_sizes[3] = {sizeof(pathname), sizeof(pathname_size, sizeof(current_dir))};
+    return CallYFS(CODE_MKDIR, args, arg_sizes, 3);
 }
 
 int RmDir(char *pathname){
@@ -307,16 +320,24 @@ int RmDir(char *pathname){
 
 int ChDir(char *pathname){
     int pathname_size = strlen(pathname);
-    void* args[2] = {(void*)&pathname, (void*)&pathname_size};
-    int arg_sizes[2] = {sizeof(pathname), sizeof(pathname_size)};
-    return CallYFS(CODE_CHDIR, args, arg_sizes, 2);
+    void* args[3] = {(void*)&pathname, (void*)&pathname_size, (void*)&current_dir};
+    int arg_sizes[3] = {sizeof(pathname), sizeof(pathname_size, sizeof(current_dir))};
+    short new_inum = CallYFS(CODE_CHDIR, args, arg_sizes, 3);
+    
+    if(new_inum == ERROR){
+	return ERROR;
+    }
+    current_dir = new_inum;
+    return 0;
 }
 
 int Stat(char *pathname, struct Stat* statbuf){
     int pathname_size = strlen(pathname);
-    void* args[3] = {(void*)&pathname, (void*)&pathname_size, (void*)&statbuf};
-    int arg_sizes[3] = {sizeof(pathname), sizeof(pathname_size), sizeof(statbuf)};
-    return CallYFS(CODE_STAT, args, arg_sizes, 3);
+    void* args[4] = {(void*)&pathname, (void*)&pathname_size, (void*)&statbuf,
+		     (void*)current_dir};
+    int arg_sizes[4] = {sizeof(pathname), sizeof(pathname_size), sizeof(statbuf),
+			sizeof(current_dir)};
+    return CallYFS(CODE_STAT, args, arg_sizes, 4);
 }
 
 int Sync(void){

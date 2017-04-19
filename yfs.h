@@ -75,19 +75,19 @@ typedef struct inode_hash_table{
 #endif /*!_yfs_h*/
 
 
-int FSOpen(char *pathname);
-int FSCreate(char *pathname);
+int FSOpen(char *pathname, short current_dir);
+int FSCreate(char *pathname, short current_dir);
 int FSRead(void *buf, int size, short inode, int position);
 int FSWrite(void *buf, int size, short inode, int position);
 int FSSeek(short inode);
-int FSLink(char *oldname, char *newname);
-int FSUnlink(char *pathname);
-int FSSymLink(char *oldname, char *newname);
-int FSReadLink(char *pathname, char *buf, int len);
-int FSMkDir(char *pathname);
-int FSRmDir(char *pathname);
-int FSChDir(char *pathname);
-int FSStat(char *pathname, struct Stat* statbuf);
+int FSLink(char *oldname, char *newname, short current_dir);
+int FSUnlink(char *pathname, short current_dir);
+int FSSymLink(char *oldname, char *newname, short current_dir);
+int FSReadLink(char *pathname, char *buf, int len, short current_dir);
+int FSMkDir(char *pathname, short current_dir);
+int FSRmDir(char *pathname, short current_dir);
+int FSChDir(char *pathname, short current_dir);
+int FSStat(char *pathname, struct Stat* statbuf, short current_dir);
 int FSSync(void);
 int FSShutdown(void);
 int Redirect_Call(char* msg, int pid);

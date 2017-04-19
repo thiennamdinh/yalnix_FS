@@ -649,11 +649,11 @@ void init_free(){
     }
 }
 
-int FSOpen(char *pathname){
+int FSOpen(char *pathname, short current_dir){
     return convert_pathname_to_inode_number(pathname, strlen(pathname), 0);
 }
 
-int FSCreate(char *pathname){
+int FSCreate(char *pathname, short current_dir){
     short parent_inum = get_parent_inum(pathname);
     char* filename = get_filename(pathname);
     return create_file(filename, parent_inum, INODE_REGULAR);
@@ -678,15 +678,15 @@ int FSSeek(short inode){
     return info->inode_val->size;
 }
 
-int FSLink(char *oldname, char *newname){
+int FSLink(char *oldname, char *newname, short current_dir){
     return 0;
 }
 
-int FSUnlink(char *pathname){
+int FSUnlink(char *pathname, short current_dir){
     return 0;
 }
 
-int FSSymLink(char *oldname, char *newname){
+int FSSymLink(char *oldname, char *newname, short current_dir){
     short parent_inum = get_parent_inum(newname);
     char* filename = get_filename(newname);
     short inum = create_file(filename, parent_inum, INODE_SYMLINK);
@@ -697,11 +697,11 @@ int FSSymLink(char *oldname, char *newname){
     return result;
 }
 
-int FSReadLink(char *pathname, char *buf, int len){
+int FSReadLink(char *pathname, char *buf, int len, short current_dir){
     return 0;
 }
 
-int FSMkDir(char *pathname){
+int FSMkDir(char *pathname, short current_dir){
 
     short parent_inum = get_parent_inum(pathname);
     char* filename = get_filename(pathname);
@@ -728,15 +728,15 @@ int FSMkDir(char *pathname){
     return 0;
 }
 
-int FSRmDir(char *pathname){
+int FSRmDir(char *pathname, short current_dir){
     return 0;
 }
 
-int FSChDir(char *pathname){
+int FSChDir(char *pathname, short current_dir){
     return 0;
 }
 
-int FSStat(char *pathname, struct Stat* statbuf){
+int FSStat(char *pathname, struct Stat* statbuf, short current_dir){
     return 0;
 }
 
@@ -758,24 +758,26 @@ int Redirect_Call(char* msg, int pid){
         
     switch(code){
 	case CODE_OPEN:{
-	    char* upathname; int upathname_size;
+	    char* upathname; int upathname_size; short ucurrent_dir;
 	    memcpy(&upathname, current += sizeof(code), sizeof(upathname));
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
+	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
 	    char* pathname = (char*)malloc(upathname_size + 1);
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
-	    result = FSOpen(pathname);
+	    result = FSOpen(pathname, ucurrent_dir);
 	    free(pathname);
 	    break;
 	}
 	case CODE_CREATE:{
-	    char* upathname; int upathname_size;
+	    char* upathname; int upathname_size; short ucurrent_dir;
 	    memcpy(&upathname, current += sizeof(code), sizeof(upathname));
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
+	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
 	    char* pathname = (char*)malloc(upathname_size + 1);
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
-	    result = FSCreate(pathname);
+	    result = FSCreate(pathname, ucurrent_dir);
 	    free(pathname);
 	    break;
 	}
@@ -785,7 +787,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&usize, current += sizeof(ubuf), sizeof(usize));
 	    memcpy(&uinode, current += sizeof(usize), sizeof(uinode));
 	    memcpy(&uposition, current += sizeof(uinode), sizeof(uposition));
-
+ 
 	    char* buf = malloc(usize + 1);
 	    result = FSRead(buf, usize, uinode, uposition);
 	    CopyTo(pid, ubuf, buf, usize + 1);
@@ -813,102 +815,112 @@ int Redirect_Call(char* msg, int pid){
 	}
 	case CODE_LINK:{
 	    char* uoldname; int uoldname_size; char* unewname; int unewname_size;
+	    short ucurrent_dir;
 	    memcpy(&uoldname, current += sizeof(code), sizeof(uoldname));
 	    memcpy(&uoldname_size, current += sizeof(uoldname), sizeof(uoldname_size));
 	    memcpy(&unewname, current += sizeof(unewname_size), sizeof(unewname));
 	    memcpy(&unewname_size, current += sizeof(unewname), sizeof(unewname_size));
+	    memcpy(&ucurrent_dir, current += sizeof(unewname_size), sizeof(ucurrent_dir));
 
 	    char* oldname = malloc(uoldname_size + 1);
 	    char* newname = malloc(unewname_size + 1);
 	    CopyFrom(pid, oldname, uoldname, uoldname_size + 1);
 	    CopyFrom(pid, newname, unewname, unewname_size + 1);
-	    result = FSLink(oldname, newname);
+	    result = FSLink(oldname, newname, ucurrent_dir);
 	    break;
 	}
 	case CODE_UNLINK:{
-	    char* upathname; int upathname_size;
+	    char* upathname; int upathname_size; short ucurrent_dir;
 	    memcpy(&upathname, current += sizeof(code), sizeof(upathname));
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
+	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
 	    char* pathname = (char*)malloc(upathname_size + 1);
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
-	    result = FSUnlink(pathname);
+	    result = FSUnlink(pathname, ucurrent_dir);
 	    free(pathname);
 	    break;
 	}
 	case CODE_SYMLINK:{
 	    char* uoldname; int uoldname_size; char* unewname; int unewname_size;
+	    short ucurrent_dir;
 	    memcpy(&uoldname, current += sizeof(code), sizeof(uoldname));
 	    memcpy(&uoldname_size, current += sizeof(uoldname), sizeof(uoldname_size));
 	    memcpy(&unewname, current += sizeof(unewname_size), sizeof(unewname));
 	    memcpy(&unewname_size, current += sizeof(unewname), sizeof(unewname_size));
+	    memcpy(&ucurrent_dir, current += sizeof(unewname_size), sizeof(ucurrent_dir));
 
 	    char* oldname = malloc(uoldname_size + 1);
 	    char* newname = malloc(unewname_size + 1);
 	    CopyFrom(pid, oldname, uoldname, uoldname_size + 1);
 	    CopyFrom(pid, newname, unewname, unewname_size + 1);
-	    result = FSSymLink(oldname, newname);
+	    result = FSSymLink(oldname, newname, ucurrent_dir);
 	    break;
 	}
 	case CODE_READLINK:{
-	    char* upathname; int upathname_size; char* ubuf; int ulen;
+	    char* upathname; int upathname_size; char* ubuf; int ulen; short ucurrent_dir;
 	    memcpy(&upathname, current += sizeof(code), sizeof(upathname));
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
 	    memcpy(&ubuf, current += sizeof(upathname_size), sizeof(ubuf));
 	    memcpy(&ulen, current += sizeof(ubuf), sizeof(ulen));
-	    
+	    memcpy(&ucurrent_dir, current += sizeof(ulen), sizeof(ucurrent_dir));
+
 	    char* pathname = malloc(upathname_size + 1);
 	    char* buf = malloc(ulen + 1);
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
-	    result = FSReadLink(pathname, buf, ulen);
+	    result = FSReadLink(pathname, buf, ulen, ucurrent_dir);
 	    CopyTo(pid, ubuf, buf, ulen + 1);
 	    free(pathname);
 	    free(buf);
 	    break;
 	}
 	case CODE_MKDIR:{
-	    char* upathname; int upathname_size;
+	    char* upathname; int upathname_size; short ucurrent_dir;
 	    memcpy(&upathname, current += sizeof(code), sizeof(upathname));
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
+	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
 	    char* pathname = (char*)malloc(upathname_size + 1);
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
-	    result = FSMkDir(pathname);
+	    result = FSMkDir(pathname, ucurrent_dir);
 	    free(pathname);
 	    break;
 	}
 	case CODE_RMDIR:{
-	    char* upathname; int upathname_size;
+	    char* upathname; int upathname_size; short ucurrent_dir;
 	    memcpy(&upathname, current += sizeof(code), sizeof(upathname));
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
+	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
 	    char* pathname = (char*)malloc(upathname_size + 1);
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
-	    result = FSRmDir(pathname);
+	    result = FSRmDir(pathname, ucurrent_dir);
 	    free(pathname);
 	    break;
 	}
 	case CODE_CHDIR:{
-	    char* upathname; int upathname_size;
+	    char* upathname; int upathname_size; short ucurrent_dir;
 	    memcpy(&upathname, current += sizeof(code), sizeof(upathname));
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
+	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
 	    char* pathname = (char*)malloc(upathname_size + 1);
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
-	    result = FSChDir(pathname);
+	    result = FSChDir(pathname, ucurrent_dir);
 	    free(pathname);
 	    break;
 	}
 	case CODE_STAT:{
-	    char* upathname; int upathname_size; struct Stat* ustatbuf;
+	    char* upathname; int upathname_size; struct Stat* ustatbuf; short ucurrent_dir;
 	    memcpy(&upathname, current += sizeof(code), sizeof(upathname));
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
 	    memcpy(&ustatbuf, current += sizeof(upathname_size), sizeof(ustatbuf));
+	    memcpy(&ucurrent_dir, current += sizeof(ustatbuf), sizeof(ucurrent_dir));
 
 	    char* pathname = (char*)malloc(upathname_size + 1);
 	    struct Stat* statbuf = (struct Stat*)malloc(sizeof(struct Stat));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
-	    result = FSStat(pathname, statbuf);
+	    result = FSStat(pathname, statbuf, ucurrent_dir);
 	    CopyTo(pid, ustatbuf, statbuf, sizeof(statbuf));
 	    free(pathname);
 	    free(statbuf);
