@@ -90,8 +90,6 @@ int calculate_inode_to_block_number(int inode_number) {
   return 1 + (inode_number / (BLOCKSIZE / INODESIZE));
 }
 
-
-
 int generate_hash_code(int key) {
    //Hash code generator.
    return key % SIZE;
