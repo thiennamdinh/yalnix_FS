@@ -433,14 +433,15 @@ struct inode_info* get_lru_inode(int inode_num) {
 struct block_info* read_block_from_disk(int block_num) {
 	struct block_info* result = get_lru_block(block_num);
 	if(result->block_number == -1) {
-		//Reads from the disk.
-		result = (struct block_info*)malloc(sizeof(struct block_info));
-		ReadSector(block_num, (void*)(result->data));
-		//Sets the dirty to not dirty
-		result->dirty = 0;
-        	set_lru_block(block_num, result);
-		//To obtain the block_info.
-		return get_lru_block(block_num);
+	    //Reads from the disk.
+	    result = (struct block_info*)malloc(sizeof(struct block_info));
+	    ReadSector(block_num, (void*)(result->data));
+	    //Sets the dirty to not dirty
+	    result->dirty = 0;
+	    result->block_number = block_num;
+	    set_lru_block(block_num, result);
+	    //To obtain the block_info.
+	    return get_lru_block(block_num);
 
 	}else{
 		return result;
@@ -582,6 +583,29 @@ int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
     return cur_inode;
 }
 
+int check_dir(int dir_inum, char* filename){
+    struct inode_info* info = read_inode_from_disk(dir_inum);
+    if(info->inode_number == ERROR){
+	fprintf(stderr, "ERROR: could not read directory\n");
+	return ERROR;
+    }
+
+    struct dir_entry entry;
+    int num_entries = info->inode_val->size / sizeof(struct dir_entry);
+    
+    int i;
+    for(i = 0; i < num_entries; i++){
+	if(FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry)) == ERROR){
+	    return ERROR;
+	}
+	if(strlen(filename) < DIRNAMELEN && strcmp(filename, entry.name) == 0){
+	    return entry.inum;
+	}
+	//	else if(strlen(filename == DIRNAMELEN
+    }
+    return 0;
+}
+/*
 int check_dir(int direct_inum, char* filename) {
     struct inode_info* dir = read_inode_from_disk(direct_inum);
     printf("---- directory %d ----- \n", direct_inum);
@@ -636,7 +660,7 @@ int check_dir(int direct_inum, char* filename) {
     }
     return 0;
 }
-
+*/
 int get_free_inode(){
     int i ;
     for ( i = 0; i < NUM_INODES; ++i)
@@ -1280,9 +1304,9 @@ int main(int argc, char** argv){
     */
     //=======================================================================================
     // tests involving using read_inode/block_from_disk and syncing for persistence
-    /*
+    
     struct inode_info* info = read_inode_from_disk(2);
-    info->inode_val->size = 30;
+    info->inode_val->size = 40;
     info->dirty = 1;
     sync();
     
@@ -1290,9 +1314,9 @@ int main(int argc, char** argv){
     printf("size of inode %d\n", info2->inode_val->size);
     
     Halt();
-    */
+    
     //=======================================================================================
-    /*
+    
     printf("Starting Test 1\n");
 
     char* dir_name1 = "/spam1";
@@ -1304,22 +1328,22 @@ int main(int argc, char** argv){
     int result2 = FSMkDir(dir_name2, 0);
     int result3 = FSMkDir(dir_name3, 0);
     printf("====================================================\n");
-    int result4 = FSMkDir(dir_name4, 3);
+    //int result4 = FSMkDir(dir_name4, 3);
     
     printf("result %d\n", result1);
     printf("result %d\n", result2);
     printf("result %d\n", result3);
-    printf("result %d\n", result4);
+    //printf("result %d\n", result4);
 
     printf("size of root %d\n", read_inode_from_disk(FSOpen("/", 0))->inode_val->size);
     printf("size of spam1 %d\n", read_inode_from_disk(FSOpen(dir_name1, 0))->inode_val->size);
     printf("size of spam2 %d\n", read_inode_from_disk(FSOpen(dir_name2, 0))->inode_val->size);
     printf("size of foo1 %d\n", read_inode_from_disk(FSOpen(dir_name3, 0))->inode_val->size);
-    printf("size of foo2 %d\n", read_inode_from_disk(FSOpen(dir_name4, 3))->inode_val->size);
+    //printf("size of foo2 %d\n", read_inode_from_disk(FSOpen(dir_name4, 3))->inode_val->size);
 
     sync();
     Halt();
-    */
+    
     //=======================================================================================
     // actual main method
 
