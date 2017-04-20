@@ -93,6 +93,8 @@ void init() {
 
    default_inode_info = (struct inode_info*) malloc(sizeof(struct inode_info));
    default_inode_info->inode_number = -1;
+
+   default_inode_wrap->inode_data = default_inode_info;
 }
 
 int calculate_inode_to_block_number(int inode_number) {
@@ -175,6 +177,7 @@ void enqueue_block(struct block_info * x) {
    x->prev = block_rear;
    block_rear = x;
    block_rear->next = NULL;
+   block_front->prev = NULL;
 }
 
 void dequeue_block() {
@@ -197,13 +200,20 @@ void remove_queue_block(struct block_info * x) {
    if(x->prev != NULL && x->next != NULL){
       x->prev->next = x->next;
       x->next->prev = x->prev;
+      x->prev = NULL;
+      x->next = NULL;
    }else if(x->prev != NULL && x->next == NULL) {
       block_rear = block_rear->prev;
       block_rear->next = NULL;
+      x->prev = NULL;
+      x->next = NULL;
    }else if(x->prev == NULL && x->next != NULL) {
       dequeue_block();
+      x->prev = NULL;
+      x->next = NULL;
    }
 }
+
 
 struct block_info* get_lru_block(int block_num) {
     struct block_wrap* result = get_block(block_num);
@@ -392,11 +402,17 @@ void remove_queue_inode(struct inode_info * x) {
    if(x->prev != NULL && x->next != NULL){
       x->prev->next = x->next;
       x->next->prev = x->prev;
+      x->next = NULL;
+      x->prev = NULL;
    }else if(x->prev != NULL && x->next == NULL) {
       inode_rear = inode_rear->prev;
       inode_rear->next = NULL;
+      x->next = NULL;
+      x->prev = NULL;
    }else if(x->prev == NULL && x->next != NULL) {
       dequeue_inode();
+      x->next = NULL;
+      x->prev = NULL;
    }
 }
 
