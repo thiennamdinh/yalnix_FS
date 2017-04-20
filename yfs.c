@@ -76,7 +76,6 @@ void init() {
    default_block_info = (struct block_info*) malloc(sizeof(struct block_info));
    default_block_info->block_number = -1;
 
-
    current_inodecache_number = 0;
    inode_front = NULL;
    inode_rear = NULL;
@@ -198,18 +197,19 @@ void remove_queue_block(struct block_info * x) {
 }
 
 struct block_info* get_lru_block(int block_num) {
-   struct block_wrap* result = get_block(block_num);
-   if(result == NULL) {
-      return default_block_info;
-   }else{
-      //Recently used.
-      remove_queue_block(result->block_data);
-      enqueue_block(result->block_data);
-      // put_to_block_front(result);
+    struct block_wrap* result = get_block(block_num);
+    if(result == NULL) {
+	return default_block_info;
+    }else{
+	//Recently used.
+	remove_queue_block(result->block_data);
+	enqueue_block(result->block_data);
+	// put_to_block_front(result);
 
-      return result->block_data;
-   }
+	return result->block_data;
+    }
 }
+
 int sync() {
   //Write everything back to the disk. Syncs everything.
   struct inode_info* tmp_inode = inode_front;
@@ -393,7 +393,7 @@ void remove_queue_inode(struct inode_info * x) {
 
 struct inode_info* get_lru_inode(int inode_num) {
    struct inode_wrap* result = get_inode(inode_num);
-   if(result->key == -1) {
+   if(result == NULL) {
       return default_inode_info;
    }else{
       //Recently used.
@@ -423,20 +423,23 @@ struct block_info* read_block_from_disk(int block_num) {
 }
 
 struct inode_info* read_inode_from_disk(int inode_num) {
-  struct inode_info* result = get_lru_inode(inode_num);
-  if(result->inode_number == -1) {
-    int block_num = calculate_inode_to_block_number(inode_num);
-    struct block_info* tmp = get_lru_block(block_num);
-    if(tmp->block_number == -1) {
-      tmp = read_block_from_disk(block_num);
+    struct inode_info* result = get_lru_inode(inode_num);
+    if(result->inode_number == -1) {
+	int block_num = calculate_inode_to_block_number(inode_num);
+	struct block_info* tmp = get_lru_block(block_num);
+	if(tmp->block_number == -1) {
+	    tmp = read_block_from_disk(block_num);
+	}
+	result = (struct inode_info*) malloc(sizeof(struct inode_info));
+	result->inode_number = inode_num;
+	result->dirty = 0;
+	result->inode_val = (struct inode*)malloc(sizeof(struct inode));
+
+	memcpy((result->inode_val), tmp->data+(inode_num-(block_num-1)*(BLOCKSIZE/INODESIZE)) * INODESIZE, INODESIZE);
+	set_lru_inode(inode_num, result);
     }
-    result = (struct inode_info*) malloc(sizeof(struct inode_info));
-    result->inode_number = inode_num;
-    result->dirty = 0;
-    memcpy(&(result->inode_val), tmp->data+(inode_num-(block_num-1)*(BLOCKSIZE/INODESIZE)) * INODESIZE, INODESIZE);
-    set_lru_inode(inode_num, result);
-  }
-  return result;
+	
+    return result;
 }
 
 
@@ -489,117 +492,122 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
 
 int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
     if(pathname == NULL ) {
-      return 0;
+	return 0;
     }
     int cur_inode;
     char node_name[DIRNAMELEN];
     memset(node_name,'\0',DIRNAMELEN);
     int sym_link_cnt = 0;
     if(pathname[0] == '/') {
-      cur_inode = ROOTINODE;
+	cur_inode = ROOTINODE;
     }else{
-      cur_inode = proc_inum;
+	cur_inode = proc_inum;
+    }
+    
+    while(*pathname == '/'){
+	pathname++;
     }
 
     //Means that it is an absolute pathname, so it starts with ROOTINODE.
-    //Kills all the slaches.
+    //Kills all the slashes.
     while(strlen(pathname) != 0) {
-      int len_path = strlen(pathname);
-      while(len_path>0 && *pathname=='/') {
-          pathname++;
-          len_path--;
-      }
-      int i = 0;
-      while(len_path>0 && *pathname!= '/') {
-        node_name[i] = *pathname;
-        i++;
-        pathname++;
-        len_path--;
-      }
-      struct inode_info* n;
-      int sub_inum = check_dir(cur_inode, node_name);
+	int len_path = strlen(pathname);
+	while(len_path>0 && *pathname=='/') {
+	    pathname++;
+	    len_path--;
+	}
+	int i = 0;
+	while(len_path>0 && *pathname!= '/') {
+	    node_name[i] = *pathname;
+	    i++;
+	    pathname++;
+	    len_path--;
+	}
+	struct inode_info* n;
 
-      if (sub_inum<=0) {
-          return -1;
-      }
-      n = read_inode_from_disk(sub_inum);
-      //If the sub inode is a symbolic link.
-      if(n->inode_val->type == INODE_SYMLINK) {
-        if(sym_link_cnt >= MAXSYMLINKS) {
-          return -1;
-        }else{
-          int data_size = n->inode_val->size;
-          char* new_pathname = (char*) malloc(sizeof(char) * data_size + len_path + 1);
-          struct block_info* b = read_block_from_disk(n->inode_val->direct[0]);
-          memcpy(new_pathname, b->data, data_size);
+	int sub_inum = check_dir(cur_inode, node_name);
+	if (sub_inum<=0) {
+	    return ERROR;
+	}
+
+	n = read_inode_from_disk(sub_inum);
+	//If the sub inode is a symbolic link.
+	if(n->inode_val->type == INODE_SYMLINK) {
+	    if(sym_link_cnt >= MAXSYMLINKS) {
+		return ERROR;
+	    }else{
+		int data_size = n->inode_val->size;
+		char* new_pathname = (char*) malloc(sizeof(char) * data_size + len_path + 1);
+		struct block_info* b = read_block_from_disk(n->inode_val->direct[0]);
+		memcpy(new_pathname, b->data, data_size);
           
-          strcat(new_pathname, "///");
-          strcat(new_pathname, pathname);
-          pathname = new_pathname;
+		strcat(new_pathname, "///");
+		strcat(new_pathname, pathname);
+		pathname = new_pathname;
 
-          // char *t1 = new_pathname+data_size;
-          // *t1 = '/';
-          // t1++;
-          // //Pathname is extended.
-          // memcpy(t1, pathname, len_path);
-          sym_link_cnt++;
-        }
-      }
+		// char *t1 = new_pathname+data_size;
+		// *t1 = '/';
+		// t1++;
+		// //Pathname is extended.
+		// memcpy(t1, pathname, len_path);
+		sym_link_cnt++;
+	    }
+	}
     }
     return cur_inode;
-  }
+}
 
 
 int check_dir(int direct_inum, char* filename) {
-  struct inode_info* dir = read_inode_from_disk(direct_inum);
-  if(dir->inode_val->type!= INODE_DIRECTORY) {
-    printf("This is not a directory.\n");
-    return -1;
-  }else{
-    int i, block_num;
-    for(i=0;i<NUM_DIRECT;i++) {
-      if(dir->inode_val->direct[i] <= 0) {
-        break;
-      }else{
-        block_num = dir->inode_val->direct[i];
-        struct block_info* b = read_block_from_disk(block_num);
-        struct dir_entry *d = (struct dir_entry*)(b->data);
-        int j;
-        for(j=0;j<NUM_DIRS_PER_BLOCK;j++) {
-          if(d[j].inum<=0){
-            continue;
-          }
-          if(strcmp(d[j].name, filename) == 0) {
-            return d[j].inum;
-          }
-        }
-      }
-    }
+    struct inode_info* dir = read_inode_from_disk(direct_inum);
+    if(dir->inode_val->type!= INODE_DIRECTORY) {
+	printf("This is not a directory.\n");
+	return ERROR;
+    }else{
+	int i, block_num;
+	for(i=0;i<NUM_DIRECT;i++) {
+	    if(dir->inode_val->direct[i] <= 0) {
+		break;
+	    }else{
+		block_num = dir->inode_val->direct[i];
+		struct block_info* b = read_block_from_disk(block_num);
+		struct dir_entry *d = (struct dir_entry*)(b->data);
+		int j;
+		for(j=0;j<NUM_DIRS_PER_BLOCK;j++) {
+		    if(d[j].inum<=0){
+			continue;
+		    }
+		    if(strcmp(d[j].name, filename) == 0) {
+			return d[j].inum;
+		    }
+		}
+	    }
+	}
 
-    if(dir->inode_val->indirect != 0) {
-      block_num = dir->inode_val->indirect;
-      struct block_info* b = read_block_from_disk(block_num);
-      int j;
-      struct block_info* tmp;
-      for(j=0;j<BLOCKSIZE;j+=4) {
-        block_num = *(int*)(b->data+j);
-        if(block_num!=0) {
-          tmp = read_block_from_disk(block_num);
-          struct dir_entry *d = (struct dir_entry*)(tmp->data);
-          int k;
-          for(k=0;k<NUM_DIRS_PER_BLOCK;k++) {
-            if(d[j].inum<=0) continue;
-            if(strcmp(d[j].name, filename) == 0) {
-              return d[j].inum;
-            }
-          }
-        }else{
-          break;
-        }
-      }
+	if(dir->inode_val->indirect != 0) {
+	    block_num = dir->inode_val->indirect;
+	    struct block_info* b = read_block_from_disk(block_num);
+	    int j;
+	    struct block_info* tmp;
+	    for(j=0;j<BLOCKSIZE;j+=4) {
+		block_num = *(int*)(b->data+j);
+		if(block_num!=0) {
+		    tmp = read_block_from_disk(block_num);
+		    struct dir_entry *d = (struct dir_entry*)(tmp->data);
+		    int k;
+		    for(k=0;k<NUM_DIRS_PER_BLOCK;k++) {
+			if(d[j].inum<=0) continue;
+			if(strcmp(d[j].name, filename) == 0) {
+			    return d[j].inum;
+			}
+		    }
+		}else{
+		    break;
+		}
+	    }
+	}
     }
-  }
-  return 0;
+    return 0;
 }
 
 int get_free_inode(){
@@ -672,6 +680,7 @@ int grow_file(struct inode* file_inode, int newsize){
 
 // returns a pointer to the data starting at "position" in the file described by "file_inode"
 char* get_data_at_position(struct inode* file_inode, int position){
+
     if(position > file_inode->size){
 	fprintf(stderr, "ERROR: trying to read past size of file");
 	return NULL;
@@ -695,13 +704,16 @@ char* get_data_at_position(struct inode* file_inode, int position){
 
 int add_directory_entry(short dir_inum, struct dir_entry new_entry){
     // parse directory for free entry slots
-    
+
+    printf("dir inum %d\n", dir_inum);
     struct inode_info* dir_info = read_inode_from_disk(dir_inum);
+    printf("dir info inode number %d\n", dir_info->inode_val->type);
+
     if(dir_info->inode_number == -1 || dir_info->inode_val->type != INODE_DIRECTORY){
 	fprintf(stderr, "ERROR: not a valid directory inode number\n");
     }
     int dir_size = dir_info->inode_val->size;
-    int position = 0;
+    int position = sizeof(struct dir_entry) * 2;    // skip '.' and '..'
     struct dir_entry old_entry;
 
     // look for a blank entry in the middle of the directory first and overwrite with new entry
@@ -712,7 +724,8 @@ int add_directory_entry(short dir_inum, struct dir_entry new_entry){
 	}
 	position += sizeof(old_entry);
     }
-    
+
+    printf("dir inumsfsdfs %d\n", dir_inum);
     // if none available, write new entry at the end of the file
     return FSWrite(&new_entry, sizeof(new_entry), dir_inum, position);
 }
@@ -732,6 +745,7 @@ int get_parent_inum(char* pathname, short current_dir){
     char* parent_path = (char*)malloc(parent_path_len + 1);
     memcpy(parent_path, pathname, parent_path_len);
     parent_path[parent_path_len] = '\0';    
+
     short parent_inum = convert_pathname_to_inode_number(parent_path, current_dir);
     free(parent_path);
 
@@ -773,8 +787,10 @@ int create_file(char* filename, short parent_inum, int type){
 	fprintf(stderr, "ERROR: no more inodes left for new file\n");
 	return ERROR;
     }
-
-    struct inode* file_inode = read_inode_from_disk(file_inum)->inode_val;
+    
+    struct inode_info* file_info = read_inode_from_disk(file_inum);
+    file_info->dirty = 1;
+    struct inode* file_inode = file_info->inode_val;
     file_inode->type = type;
     file_inode->nlink = 1;
     file_inode->reuse++;
@@ -790,7 +806,7 @@ int create_file(char* filename, short parent_inum, int type){
 	filename_len = DIRNAMELEN;
     memcpy(entry.name, filename, filename_len);
 
-    if(!add_directory_entry(parent_inum, entry)){
+    if(add_directory_entry(parent_inum, entry) == ERROR){
 	// undo prior process to create inode for thefile
 	free_inodes[file_inum] = FREE;
 	file_inode->type = INODE_FREE;
@@ -815,24 +831,22 @@ void init_free(){
 
     free_inodes = (short*)malloc(NUM_INODES * sizeof(short));
     free_blocks = (short*)malloc(NUM_BLOCKS * sizeof(short));
+     
     int i;
-    for (i = 0; i < NUM_BLOCKS; ++i)
-    {
-      /* code */
-      free_blocks[i] = FREE;
+    for (i = 0; i < NUM_BLOCKS; ++i){
+	free_blocks[i] = FREE;
     }
-    for (i = 0; i < NUM_INODES; ++i)
-    {
-      /* code */
-      free_inodes[i] = FREE;
+    for (i = 0; i < NUM_INODES; ++i){
+	free_inodes[i] = FREE;
     }
-
     free_inodes[0] = TAKEN;  // fs_header inode is also taken   
+    free_inodes[1] = TAKEN;  // fs_header inode is also taken   
     free_blocks[0] = TAKEN;  // boot block is taken
 
     // loop through all inodes
     for(i = 1; i < NUM_INODES; i++){
 	struct inode* current_inode = read_inode_from_disk(i)->inode_val;
+	
 	if(current_inode->type == INODE_FREE){
 	    free_blocks[i] = TAKEN;
 
@@ -855,10 +869,6 @@ void init_free(){
 
 	    }
 	}
-
-
-
-
     }
 }
 
@@ -882,8 +892,9 @@ int FSRead(void *buf, int size, short inode, int position){
 
     int offset = 0;
     // keep reading while buf is not full and we have not reached the end of the file
-    while(offset < size || position + offset < file_inode->size){
-	char* data = get_data_at_position(file_inode, position + offset);
+    while(offset < size && position + offset < file_inode->size){
+	Pause();
+        char* data = get_data_at_position(file_inode, position + offset);
 	
 	// readable size is min of space left in current block and size left in buffer
 	int readable_size = BLOCKSIZE;
@@ -893,7 +904,7 @@ int FSRead(void *buf, int size, short inode, int position){
 	    readable_size = size - offset;
 	if(file_inode->size - (position + offset) < readable_size)
 	    readable_size = file_inode->size - (position + offset);
-
+	
 	memcpy(buf + offset, data, readable_size);
 	offset += readable_size;
     }
@@ -901,8 +912,8 @@ int FSRead(void *buf, int size, short inode, int position){
     return 0;
 }
 
-int FSWrite(void *buf, int size, short inode, int position){
-    struct inode_info* info = read_inode_from_disk(inode);
+int FSWrite(void *buf, int size, short inum, int position){
+    struct inode_info* info = read_inode_from_disk(inum);
     if(info->inode_number == -1){
 	fprintf(stderr, "ERROR: not a valid inode number\n");
 	return ERROR;
@@ -911,13 +922,14 @@ int FSWrite(void *buf, int size, short inode, int position){
 
     // if writing past the size of the current file then we need to expand it first
     if(grow_file(file_inode, position + size) == ERROR){
-	printf("ERROR: failed to grow file in write operation\n");
+	fprintf(stderr, "ERROR: failed to grow file in write operation\n");
 	return ERROR;
     }
 
     int offset = 0;
     // write over existing data first
-    while(offset < size || position + offset < file_inode->size){
+ 
+    while(offset < size && position + offset < file_inode->size){
 	char* data = get_data_at_position(file_inode, position + offset);
 	
 	// writeable size is min of blocksize, space left in buf, and space left in file
@@ -930,6 +942,8 @@ int FSWrite(void *buf, int size, short inode, int position){
 	memcpy(data, buf + offset, writeable_size);
 	offset += writeable_size;
     }
+
+    info->dirty = 1;
 
     return 0;
 }
@@ -969,10 +983,9 @@ int FSReadLink(char *pathname, char *buf, int len, short current_dir){
 }
 
 int FSMkDir(char *pathname, short current_dir){
-
     short parent_inum = get_parent_inum(pathname, current_dir);
     char* filename = get_filename(pathname);
-    short inum = create_file(filename, parent_inum, INODE_REGULAR);
+    short inum = create_file(filename, parent_inum, INODE_DIRECTORY);
     if(inum == ERROR)
 	return ERROR;
 
@@ -991,7 +1004,7 @@ int FSMkDir(char *pathname, short current_dir){
 
     add_directory_entry(inum, dot);
     add_directory_entry(inum, dotdot);
-
+ 
     return 0;
 }
 
@@ -1211,17 +1224,20 @@ int Redirect_Call(char* msg, int pid){
 }
 
 int main(int argc, char** argv){
-
+    /*
     int pid = Fork();
     if(pid == 0){
 	Exec(argv[1], argv + 1);
     }
-
-    Register(FILE_SERVER);
+    */
     init();
     init_free();
 
+    char* test = "/spam";
+    sync();
 
+    /*
+    Register(FILE_SERVER);
 
     // stand by and simply route messages from here on out
     while(1){
@@ -1248,6 +1264,6 @@ int main(int argc, char** argv){
 	memcpy(msg, &result, sizeof(result));
 	Reply(msg, pid);      
     }
-
+    */
     return 0;
 }
