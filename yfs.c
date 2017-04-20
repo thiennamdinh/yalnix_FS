@@ -624,6 +624,7 @@ int get_free_block() {
   }
   return -1;
 }
+
 // allocate space for the file_inode to hold up to "newsize" data
 int grow_file(struct inode* file_inode, int newsize){
     if(newsize < file_inode->size){
@@ -653,8 +654,8 @@ int grow_file(struct inode* file_inode, int newsize){
 	struct block_info * block_indirect = read_block_from_disk(big_block_num);
 	int * int_array = (int*)(block_indirect->data);
 	while(current < BLOCKSIZE * NUM_DIRECT && current < newsize ) {
-      
-	    for (int i = 0; i < BLOCKSIZE; ++i)
+	    int i;
+	    for (i = 0; i < BLOCKSIZE; ++i)
 		{
 		    int free_block = get_free_block();
 		    if(free_block == -1) {
@@ -686,9 +687,9 @@ char* get_data_at_position(struct inode* file_inode, int position){
 
     // if position is within indirect blocks
     struct block_info* indirect_info = read_block_from_disk(file_inode->indirect);
-    int target_num = (int*)(info->data) + (file_block_num - NUM_DIRECT);
+    int target_num = (int*)(indirect_info->data) + (file_block_num - NUM_DIRECT);
     
-    struct block_info* target_info = read_block_from_disk(indirect_num);
+    struct block_info* target_info = read_block_from_disk(target_num);
     return target_info->data + position % BLOCKSIZE;
 }
 
@@ -829,7 +830,6 @@ void init_free(){
     free_inodes[0] = TAKEN;  // fs_header inode is also taken   
     free_blocks[0] = TAKEN;  // boot block is taken
 
-    int i;
     // loop through all inodes
     for(i = 1; i < NUM_INODES; i++){
 	struct inode* current_inode = read_inode_from_disk(i)->inode_val;
