@@ -602,6 +602,28 @@ int check_dir(int direct_inum, char* filename) {
   return 0;
 }
 
+int get_free_inode(){
+  int i ;
+  for ( i = 0; i < NUM_INODES; ++i)
+  {
+    /* code */
+    if(free_inodes[i] == FREE) {
+      return i;
+    }
+  }
+  return -1;
+}
+int get_free_block() {
+  int i ;
+  for ( i = 0; i < NUM_BLOCKS; ++i)
+  {
+    /* code */
+    if(free_blocks[i] == FREE) {
+      return i;
+    }
+  }
+  return -1;
+}
 // allocate space for the file_inode to hold up to "newsize" data
 int grow_file(struct inode* file_inode, int newsize){
     if(newsize < file_inode->size){
@@ -609,18 +631,39 @@ int grow_file(struct inode* file_inode, int newsize){
 	return 0;
     }
 
-    int current = file_inode->size;
+    int current = (file_inode->size) / BLOCKSIZE;
     
     // fill up direct blocks first
     if(current < BLOCKSIZE * NUM_DIRECT){
 	while(current < BLOCKSIZE * NUM_DIRECT && current < newsize){
 	    // assign a new block in direct
+	    int free_block = get_free_block();
+	    if(free_block == -1) {
+		return -1;
+	    }
+	    file_inode->direct[current / BLOCKSIZE + 1] = free_block;
+	    current++;
+
 	}
     }
     
     // if direct blocks not enough, then access indirect blocks
     if(current < newsize){
-	
+	int big_block_num = file_inode->indirect;
+	struct block_info * block_indirect = read_block_from_disk(big_block_num);
+	int * int_array = (int*)(block_indirect->data);
+	while(current < BLOCKSIZE * NUM_DIRECT && current < newsize ) {
+      
+	    for (int i = 0; i < BLOCKSIZE; ++i)
+		{
+		    int free_block = get_free_block();
+		    if(free_block == -1) {
+			return ERROR;
+		    }
+		    int_array[i] = free_block;
+		}
+	    current++;
+	}
     }
 
     return 0;
@@ -771,6 +814,17 @@ void init_free(){
 
     free_inodes = (short*)malloc(NUM_INODES * sizeof(short));
     free_blocks = (short*)malloc(NUM_BLOCKS * sizeof(short));
+    int i;
+    for (i = 0; i < NUM_BLOCKS; ++i)
+    {
+      /* code */
+      free_blocks[i] = FREE;
+    }
+    for (i = 0; i < NUM_INODES; ++i)
+    {
+      /* code */
+      free_inodes[i] = FREE;
+    }
 
     free_inodes[0] = TAKEN;  // fs_header inode is also taken   
     free_blocks[0] = TAKEN;  // boot block is taken
@@ -794,10 +848,17 @@ void init_free(){
 		int* indirect_block = (int*)(read_block_from_disk(current_inode->indirect)->data);
 		while(j * BLOCKSIZE < current_inode->size){
 		    free_blocks[indirect_block[j - NUM_DIRECT]] = TAKEN;
+
 		    j++;
+
 		}
+
 	    }
 	}
+
+
+
+
     }
 }
 
