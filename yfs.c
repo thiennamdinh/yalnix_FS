@@ -628,7 +628,25 @@ int grow_file(struct inode* file_inode, int newsize){
 
 // returns a pointer to the data starting at "position" in the file described by "file_inode"
 char* get_data_at_position(struct inode* file_inode, int position){
-    return NULL;
+    if(position > file_inode->size){
+	fprintf(stderr, "ERROR: trying to read past size of file");
+	return NULL;
+    }
+
+    int file_block_num = position / BLOCKSIZE;
+
+    // if position is within direct blocks
+    if(file_block_num < NUM_DIRECT){
+	struct block_info* info = read_block_from_disk(file_inode->direct[file_block_num]);
+	return info->data + position % BLOCKSIZE;
+    }
+
+    // if position is within indirect blocks
+    struct block_info* indirect_info = read_block_from_disk(file_inode->indirect);
+    int target_num = (int*)(info->data) + (file_block_num - NUM_DIRECT);
+    
+    struct block_info* target_info = read_block_from_disk(indirect_num);
+    return target_info->data + position % BLOCKSIZE;
 }
 
 int add_directory_entry(short dir_inum, struct dir_entry new_entry){
@@ -704,6 +722,8 @@ int create_file(char* filename, short parent_inum, int type){
 	    break;
 	}
     }
+
+    free_inodes[i] = TAKEN;
 
     if(file_inum == NUM_INODES){
 	fprintf(stderr, "ERROR: no more inodes left for new file\n");
@@ -1139,6 +1159,8 @@ int main(int argc, char** argv){
     Register(FILE_SERVER);
     init();
     init_free();
+
+
 
     // stand by and simply route messages from here on out
     while(1){
