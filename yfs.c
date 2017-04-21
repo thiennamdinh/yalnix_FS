@@ -1,66 +1,6 @@
 #include "yfs.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <comp421/iolib.h>
-#include <comp421/filesystem.h>
-#include <comp421/yalnix.h>
-#include <comp421/hardware.h>
 
-#define SIZE 100
-// #define BLOCKSIZE 32
-#define CACHESIZE 32 // Needs to be modified to another number.
-
-//Dirty = 1 means it is dirty
-//Dirty = 0 means it is not dirty
-int NUM_DIRS_PER_BLOCK = BLOCKSIZE / sizeof(struct dir_entry);
-
-//Block variables:
-int current_blockcache_number;
-struct block_info {
-    int dirty;
-    int block_number;
-    struct block_info *next;
-    struct block_info *prev;
-    char data[BLOCKSIZE];
-};
-
-struct block_wrap {
-   int key;
-   struct block_info* block_data;
-};
-
-struct block_info* block_front;
-struct block_info* block_rear;
-
-struct block_wrap* block_hashtable[SIZE]; 
-struct block_wrap* default_block_wrap;
-struct block_info* default_block_info;
-
-//Inode variable
-int current_inodecache_number;
-
-struct inode_info {
-    int dirty;
-    int inode_number;
-    struct inode_info *next;
-    struct inode_info *prev;
-    struct inode *inode_val; //From the filesystem.h
-};
-
-struct inode_wrap {
-   int key;
-   struct inode_info* inode_data;
-};
-struct inode_info* inode_front;
-struct inode_info* inode_rear;
-
-struct inode_wrap* inode_hashtable[SIZE]; 
-struct inode_wrap* default_inode_wrap;
-struct inode_info* default_inode_info;
-//Declare
 int calculate_inode_to_block_number(int inode_number) ;
 struct block_info* read_block_from_disk(int block_num);
 int sync();
@@ -462,7 +402,6 @@ struct inode_info* read_inode_from_disk(int inode_num) {
 	memcpy((result->inode_val), tmp->data+(inode_num-(block_num-1)*(BLOCKSIZE/INODESIZE)) * INODESIZE, INODESIZE);
 	set_lru_inode(inode_num, result);
     }
-	
     return result;
 }
 
@@ -512,6 +451,28 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
    }
 }
 
+int check_dir(int dir_inum, char* filename){
+    struct inode_info* info = read_inode_from_disk(dir_inum);
+    if(info->inode_number == ERROR){
+	fprintf(stderr, "ERROR: could not read directory\n");
+	return ERROR;
+    }
+
+    struct dir_entry entry;
+    int num_entries = info->inode_val->size / sizeof(struct dir_entry);
+    
+    int i;
+    for(i = 0; i < num_entries; i++){
+	if(FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry)) == ERROR){
+	    return ERROR;
+	}
+	if(strlen(filename) < DIRNAMELEN && strcmp(filename, entry.name) == 0){
+	    return entry.inum;
+	}
+	//TODO need to take care of case where filename == DIRNAMELEN
+    }
+    return 0;
+}
 
 int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
     if(pathname == NULL ) {
@@ -581,35 +542,11 @@ int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
     return cur_inode;
 }
 
-int check_dir(int dir_inum, char* filename){
-    struct inode_info* info = read_inode_from_disk(dir_inum);
-    if(info->inode_number == ERROR){
-	fprintf(stderr, "ERROR: could not read directory\n");
-	return ERROR;
-    }
-
-    struct dir_entry entry;
-    int num_entries = info->inode_val->size / sizeof(struct dir_entry);
-    
-    int i;
-    for(i = 0; i < num_entries; i++){
-	if(FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry)) == ERROR){
-	    return ERROR;
-	}
-	if(strlen(filename) < DIRNAMELEN && strcmp(filename, entry.name) == 0){
-	    return entry.inum;
-	}
-	//TODO need to take care of case where filename == DIRNAMELEN
-    }
-    return 0;
-}
-
 void print_dir(int dir_inum){
     
     struct inode_info* info = read_inode_from_disk(dir_inum);
     if(info->inode_number == ERROR){
 	fprintf(stderr, "ERROR: could not read directory\n");
-	return ERROR;
     }
 
     struct dir_entry entry;
@@ -623,7 +560,6 @@ void print_dir(int dir_inum){
        	printf("%d - %s\n", entry.inum, entry.name); 
     }
     printf("----------------------\n\n");
-    return 0;
 }
 
 
@@ -771,7 +707,7 @@ char* get_data_at_position(struct inode* file_inode, int position){
 
     // if position is within indirect blocks
     struct block_info* indirect_info = read_block_from_disk(file_inode->indirect);
-    int target_num = (int*)(indirect_info->data) + (file_block_num - NUM_DIRECT);
+    int target_num = (long)(indirect_info->data) + (file_block_num - NUM_DIRECT);
     
     struct block_info* target_info = read_block_from_disk(target_num);
     return target_info->data + position % BLOCKSIZE;

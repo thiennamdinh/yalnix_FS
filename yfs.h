@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include <comp421/yalnix.h>
 #include <comp421/hardware.h>
@@ -35,45 +36,61 @@
 #define FREE 0
 #define TAKEN 1
 
+#define SIZE 100
+#define CACHESIZE 32 // Needs to be modified to another number.
+
 int NUM_INODES;
 int NUM_BLOCKS;
 
 short* free_inodes;
 short* free_blocks;
 
+int NUM_DIRS_PER_BLOCK = BLOCKSIZE / sizeof(struct dir_entry);
 
-/* commenting out because compiler is complainting about redefinition
-//Block
-typedef struct block_wrap {
+
+//Block variables:
+int current_blockcache_number;
+struct block_info {
     int dirty;
     int block_number;
+    struct block_info *next;
+    struct block_info *prev;
     char data[BLOCKSIZE];
-} block_wrap;
+};
 
-typedef struct block_hash_table {
-    int key;
-    block_wrap *val;
-} block_hash_table;
+struct block_wrap {
+   int key;
+   struct block_info* block_data;
+};
 
-//Inode
-typedef struct inode_wrap {
+struct block_info* block_front;
+struct block_info* block_rear;
+
+struct block_wrap* block_hashtable[SIZE]; 
+struct block_wrap* default_block_wrap;
+struct block_info* default_block_info;
+
+//Inode variable
+int current_inodecache_number;
+
+struct inode_info {
     int dirty;
     int inode_number;
-    struct inode_wrap *prev;
-    struct inode_wrap *next;
-    struct inode data;
-} inode_wrap;
+    struct inode_info *next;
+    struct inode_info *prev;
+    struct inode *inode_val; //From the filesystem.h
+};
 
+struct inode_wrap {
+   int key;
+   struct inode_info* inode_data;
+};
+struct inode_info* inode_front;
+struct inode_info* inode_rear;
 
-typedef struct inode_hash_table{
-    int key;
-    inode_wrap *val;
-    struct inode_hash_table *next;
-    struct inode_hash_table *prev;
-} inode_hash_table;
-*/
-#endif /*!_yfs_h*/
-
+struct inode_wrap* inode_hashtable[SIZE]; 
+struct inode_wrap* default_inode_wrap;
+struct inode_info* default_inode_info;
 
 int FSOpen(char *pathname, short current_dir);
 int FSCreate(char *pathname, short current_dir);
@@ -91,3 +108,7 @@ int FSStat(char *pathname, struct Stat* statbuf, short current_dir);
 int FSSync(void);
 int FSShutdown(void);
 int Redirect_Call(char* msg, int pid);
+
+void set_lru_inode(int inode_num, struct inode_info* input_inode);
+
+#endif /*!_yfs_h*/
