@@ -36,8 +36,8 @@
 #define FREE 0
 #define TAKEN 1
 
-#define SIZE 100
-#define CACHESIZE 32 // Needs to be modified to another number.
+//#define SIZE 100
+//#define CACHESIZE 32 // Needs to be modified to another number.
 
 int NUM_INODES;
 int NUM_BLOCKS;
@@ -66,7 +66,7 @@ struct block_wrap {
 struct block_info* block_front;
 struct block_info* block_rear;
 
-struct block_wrap* block_hashtable[SIZE]; 
+struct block_wrap* block_hashtable[BLOCK_CACHESIZE]; 
 struct block_wrap* default_block_wrap;
 struct block_info* default_block_info;
 
@@ -88,7 +88,7 @@ struct inode_wrap {
 struct inode_info* inode_front;
 struct inode_info* inode_rear;
 
-struct inode_wrap* inode_hashtable[SIZE]; 
+struct inode_wrap* inode_hashtable[INODE_CACHESIZE]; 
 struct inode_wrap* default_inode_wrap;
 struct inode_info* default_inode_info;
 

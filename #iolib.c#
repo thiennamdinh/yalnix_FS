@@ -10,7 +10,7 @@ struct Open_File {
     short inode;
     int position;
 };
-
+y
 struct Open_File files[MAX_OPEN_FILES];
 
 int num_open_files = 0;
