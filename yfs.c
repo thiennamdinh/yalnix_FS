@@ -68,12 +68,10 @@ int sync();
 void Print() {
    struct block_info* temp = block_front;
    while(temp != NULL) {
-       printf("block %d is dirty? %d\n",temp->block_number, temp->dirty);
        temp = temp->next;
    }
    free(temp);
 }
-
 
 void init() {
    current_blockcache_number = 0;
@@ -488,7 +486,7 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
 	      	int block_num_to_write = calculate_inode_to_block_number(to_be_removed_key);
 	      	struct block_info *tmp = read_block_from_disk(block_num_to_write);
 	      	int index = inode_num - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
-	      	memcpy((void*)(tmp->data + index * INODESIZE), (void*)(&inode_front->inode_val), INODESIZE);
+	      	memcpy((void*)(tmp->data + index * INODESIZE), (void*)(inode_front->inode_val), INODESIZE);
 	      	tmp->dirty = 1;
 	      }
 
@@ -554,7 +552,7 @@ int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
 	}
         
 	struct inode_info* n;
-	int sub_inum = check_dir(cur_inode, node_name);
+        int sub_inum = check_dir(cur_inode, node_name);
 	if (sub_inum<=0) {
 	    fprintf(stderr, "ERROR: failed to parse given path\n");
 	    return ERROR;
@@ -601,10 +599,34 @@ int check_dir(int dir_inum, char* filename){
 	if(strlen(filename) < DIRNAMELEN && strcmp(filename, entry.name) == 0){
 	    return entry.inum;
 	}
-	//	else if(strlen(filename == DIRNAMELEN
+	//TODO need to take care of case where filename == DIRNAMELEN
     }
     return 0;
 }
+
+void print_dir(int dir_inum){
+    
+    struct inode_info* info = read_inode_from_disk(dir_inum);
+    if(info->inode_number == ERROR){
+	fprintf(stderr, "ERROR: could not read directory\n");
+	return ERROR;
+    }
+
+    struct dir_entry entry;
+    int num_entries = info->inode_val->size / sizeof(struct dir_entry);
+    
+    printf("\n---- directory %d ----\n", dir_inum);
+
+    int i;
+    for(i = 0; i < num_entries; i++){
+	FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry));
+       	printf("%d - %s\n", entry.inum, entry.name); 
+    }
+    printf("----------------------\n\n");
+    return 0;
+}
+
+
 /*
 int check_dir(int direct_inum, char* filename) {
     struct inode_info* dir = read_inode_from_disk(direct_inum);
@@ -692,7 +714,6 @@ int grow_file(struct inode* file_inode, int newsize){
 
     // round filesize up to the next blocksize
     int current = ((file_inode->size + (BLOCKSIZE-1)) / BLOCKSIZE) * BLOCKSIZE;
-    
     // fill up direct blocks first
     if(current < BLOCKSIZE * NUM_DIRECT){
         while(current < BLOCKSIZE * NUM_DIRECT && current < newsize){
@@ -701,7 +722,7 @@ int grow_file(struct inode* file_inode, int newsize){
 	    if(free_block == -1) {
 		return -1;
 	    }
-	    file_inode->direct[current / BLOCKSIZE + 1] = free_block;
+	    file_inode->direct[current / BLOCKSIZE] = free_block;
 	    free_blocks[free_block] = TAKEN;
 	    current += BLOCKSIZE;
 
@@ -757,15 +778,15 @@ char* get_data_at_position(struct inode* file_inode, int position){
 }
 
 int add_directory_entry(short dir_inum, struct dir_entry new_entry){
-    // parse directory for free entry slots
-
     struct inode_info* dir_info = read_inode_from_disk(dir_inum);
+    dir_info->dirty = 1;
 
     if(dir_info->inode_number == -1 || dir_info->inode_val->type != INODE_DIRECTORY){
 	fprintf(stderr, "ERROR: not a valid directory inode number\n");
     }
+
     int dir_size = dir_info->inode_val->size;
-    int position = dir_size;
+    int position = 0;
     struct dir_entry old_entry;
     
     // look for a blank entry in the middle of the directory first and overwrite with new entry
@@ -782,13 +803,13 @@ int add_directory_entry(short dir_inum, struct dir_entry new_entry){
 
 int get_parent_inum(char* pathname, short current_dir){
     // parse backwards and look for last '/'
-    int i; int parent_path_len;
+    int i;
     for(i = strlen(pathname) - 1; i >= 0; i--){
 	if(pathname[i] == '/'){
-	    parent_path_len = i + 1;
 	    break;
 	}
     }
+    int parent_path_len = i + 1;
     
     // attempt to get inode of parent directory
     char* parent_path = (char*)malloc(parent_path_len + 1);
@@ -826,6 +847,11 @@ char* get_filename(char* pathname){
 int create_file(char* filename, short parent_inum, int type){
     short file_inum;
 
+    if(check_dir(parent_inum, filename) == ERROR){
+	fprintf(stderr, "ERROR: file already exists\n");
+	return ERROR;
+    }
+
     // allocate new inode for file
     short i;
     for(i = 0; i < NUM_INODES; i++){
@@ -834,7 +860,6 @@ int create_file(char* filename, short parent_inum, int type){
 	    break;
 	}
     }
-
     if(file_inum == NUM_INODES){
 	fprintf(stderr, "ERROR: no more inodes left for new file\n");
 	return ERROR;
@@ -986,7 +1011,6 @@ int FSWrite(void *buf, int size, short inum, int position){
  
     while(offset < size && position + offset < file_inode->size){
 	char* data = get_data_at_position(file_inode, position + offset);
-	
 	// writeable size is min of blocksize, space left in buf, and space left in file
 	int writeable_size = BLOCKSIZE;
 	if((position + offset) % BLOCKSIZE != 0)
@@ -1304,7 +1328,7 @@ int main(int argc, char** argv){
     */
     //=======================================================================================
     // tests involving using read_inode/block_from_disk and syncing for persistence
-    
+    /*
     struct inode_info* info = read_inode_from_disk(2);
     info->inode_val->size = 40;
     info->dirty = 1;
@@ -1314,34 +1338,38 @@ int main(int argc, char** argv){
     printf("size of inode %d\n", info2->inode_val->size);
     
     Halt();
-    
+    */
     //=======================================================================================
     
     printf("Starting Test 1\n");
-
+    
     char* dir_name1 = "/spam1";
     char* dir_name2 = "/spam2";
     char* dir_name3 = "/spam1/foo1";
     char* dir_name4 = "foo2";
-
+                
     int result1 = FSMkDir(dir_name1, 0);
     int result2 = FSMkDir(dir_name2, 0);
     int result3 = FSMkDir(dir_name3, 0);
-    printf("====================================================\n");
-    //int result4 = FSMkDir(dir_name4, 3);
+    int result4 = FSMkDir(dir_name4, 3);
     
     printf("result %d\n", result1);
     printf("result %d\n", result2);
     printf("result %d\n", result3);
-    //printf("result %d\n", result4);
-
+    printf("result %d\n", result4);
+    
+    sync();
+    
+    print_dir(1);
+    print_dir(2);
+    print_dir(3);
+    
     printf("size of root %d\n", read_inode_from_disk(FSOpen("/", 0))->inode_val->size);
     printf("size of spam1 %d\n", read_inode_from_disk(FSOpen(dir_name1, 0))->inode_val->size);
     printf("size of spam2 %d\n", read_inode_from_disk(FSOpen(dir_name2, 0))->inode_val->size);
     printf("size of foo1 %d\n", read_inode_from_disk(FSOpen(dir_name3, 0))->inode_val->size);
-    //printf("size of foo2 %d\n", read_inode_from_disk(FSOpen(dir_name4, 3))->inode_val->size);
+    printf("size of foo2 %d\n", read_inode_from_disk(FSOpen(dir_name4, 3))->inode_val->size);
 
-    sync();
     Halt();
     
     //=======================================================================================
