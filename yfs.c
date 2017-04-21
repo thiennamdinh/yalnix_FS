@@ -445,6 +445,21 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
    }
 }
 
+struct dir_entry create_entry(short inum, char* filename){
+    
+    struct dir_entry entry;
+    entry.inum = inum;
+
+    memset(&entry.name, '\0', DIRNAMELEN);
+    int namelen = strlen(filename);
+    if(namelen > DIRNAMELEN)
+	namelen = DIRNAMELEN;
+    
+    memcpy(&entry.name, filename, namelen);
+    return entry;
+}
+
+
 int check_dir(int dir_inum, char* filename){
     struct inode_info* info = read_inode_from_disk(dir_inum);
     if(info->inode_number == ERROR){
@@ -460,10 +475,10 @@ int check_dir(int dir_inum, char* filename){
 	if(FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry)) == ERROR){
 	    return ERROR;
 	}
-	if(strlen(filename) < DIRNAMELEN && strcmp(filename, entry.name) == 0){
+	if(strncmp(filename, entry.name, DIRNAMELEN) == 0){
 	    return entry.inum;
 	}
-	//TODO need to take care of case where filename == DIRNAMELEN
+	
     }
     return 0;
 }
@@ -477,25 +492,21 @@ int remove_from_dir(int dir_inum, int file_inum){
 
     struct dir_entry entry;
     int num_entries = info->inode_val->size / sizeof(struct dir_entry);
-    
     int i;
-    for(i = 0; i < num_entries; i++){
+    for(i = 2; i < num_entries; i++){
 	if(FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry)) == ERROR){
 	    return ERROR;
 	}
 	if(file_inum == entry.inum){
-	    struct dir_entry blank;
-	    *blank.name = '\0';
-	    blank.inum = 0;
+	    char* null_str = "\0";
+	    struct dir_entry blank = create_entry(0, null_str);
 	    FSWrite((void*)&blank, sizeof(blank), dir_inum, i * sizeof(struct dir_entry));
 	    return 0;
 	}
-	//TODO need to take care of case where filename == DIRNAMELEN
     }
     return ERROR;
 }
-
-
+ 
 int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
     if(pathname == NULL ) {
 	return proc_inum;
@@ -584,62 +595,6 @@ void print_dir(int dir_inum){
     printf("----------------------\n\n");
 }
 
-/*
-int check_dir(int direct_inum, char* filename) {
-    struct inode_info* dir = read_inode_from_disk(direct_inum);
-    printf("---- directory %d ----- \n", direct_inum);
-    if(dir->inode_val->type!= INODE_DIRECTORY) {
-	fprintf(stderr, "ERROR: This is not a directory.\n");
-	return ERROR;
-    }
-
-    int i, block_num;
-    // check through direct blocks
-    for(i=0;i<NUM_DIRECT;i++) {
-	if(i * BLOCKSIZE + 1 > dir->inode_val->size) {
-	    break;
-	}else{
-	    block_num = dir->inode_val->direct[i];
-	    struct block_info* b = read_block_from_disk(block_num);
-	    struct dir_entry *d = (struct dir_entry*)(b->data);
-	    int j;
-	    for(j=0;j<NUM_DIRS_PER_BLOCK;j++) {
-		printf("file name %s\n", d[j].name);
-		if(d[j].inum<=0){
-		    continue;
-		}
-		if(strcmp(d[j].name, filename) == 0) {
-		    return d[j].inum;
-		}
-	    }
-	}
-    }
-    // check indirect blocks
-    if(dir->inode_val->size > NUM_DIRECT * BLOCKSIZE) {
-	block_num = dir->inode_val->indirect;
-	struct block_info* b = read_block_from_disk(block_num);
-	int j;
-	struct block_info* tmp;
-	for(j=0;j<BLOCKSIZE;j+=4) {
-	    block_num = *(int*)(b->data+j);
-	    if(block_num!=0) {
-		tmp = read_block_from_disk(block_num);
-		struct dir_entry *d = (struct dir_entry*)(tmp->data);
-		int k;
-		for(k=0;k<NUM_DIRS_PER_BLOCK;k++) {
-		    if(d[j].inum<=0) continue;
-		    if(strcmp(d[j].name, filename) == 0) {
-			return d[j].inum;
-		    }
-		}
-	    }else{
-		break;
-	    }
-	}
-    }
-    return 0;
-}
-*/
 int get_free_inode(){
     int i ;
     for ( i = 0; i < NUM_INODES; ++i){
@@ -814,8 +769,7 @@ int create_file(char* filename, short parent_inum, int type){
     short file_inum;
 
     if(check_dir(parent_inum, filename) == ERROR){
-	fprintf(stderr, "ERROR: file already exists\n");
-	return ERROR;
+        return ERROR;
     }
 
     // allocate new inode for file
@@ -840,16 +794,9 @@ int create_file(char* filename, short parent_inum, int type){
     file_inode->reuse++;
     file_inode->size = 0;
     file_info->dirty = 1;
-    
-    //TODO: correct way to rewrite inode to disk?
 
     // create and populate new directory entry
-    struct dir_entry entry;
-    entry.inum = file_inum;
-    int filename_len = strlen(filename);
-    if(filename_len > DIRNAMELEN)
-	filename_len = DIRNAMELEN;
-    memcpy(entry.name, filename, filename_len);
+    struct dir_entry entry = create_entry(file_inum, filename);
 
     if(add_directory_entry(parent_inum, entry) == ERROR){
 	// undo prior process to create inode for the file
@@ -1004,10 +951,42 @@ int FSSeek(short inode){
 }
 
 int FSLink(char *oldname, char *newname, short current_dir){
+    short old_inum = convert_pathname_to_inode_number(oldname, current_dir);
+    short new_inum = convert_pathname_to_inode_number(newname, current_dir);
+
+    struct inode_info* old_info = read_inode_from_disk(old_inum);
+    if(old_info->inode_number == -1 || old_info->inode_val->type == INODE_DIRECTORY){
+	fprintf(stderr, "ERROR: cannot create link to given file\n");
+	return ERROR;
+    }
+    
+    short parent_inum = get_parent_inum(newname, current_dir);
+    char* new_filename = get_filename(newname);
+
+    struct dir_entry entry = create_entry(new_inum, new_filename);
+    add_directory_entry(parent_inum, entry);
+
+    old_info->inode_val->nlink++;
+    old_info->dirty = 1;
+
     return 0;
 }
 
 int FSUnlink(char *pathname, short current_dir){
+
+    short inum = convert_pathname_to_inode_number(pathname, current_dir);
+    struct inode_info* info = read_inode_from_disk(inum);
+    if(info->inode_number == -1 || info->inode_val->type == INODE_DIRECTORY){
+	fprintf(stderr, "ERROR: cannot read link to given file\n");
+	return ERROR;
+    }
+
+    short parent_inum = get_parent_inum(pathname, current_dir);
+    remove_from_dir(parent_inum, inum);
+
+    info->inode_val->nlink--;
+    info->dirty = 1;
+    
     return 0;
 }
 
@@ -1023,7 +1002,8 @@ int FSSymLink(char *oldname, char *newname, short current_dir){
 }
 
 int FSReadLink(char *pathname, char *buf, int len, short current_dir){
-    return 0;
+    short inum = convert_pathname_to_inode_number(pathname, current_dir);
+    return FSRead(buf, len, inum, 0);
 }
 
 int FSMkDir(char *pathname, short current_dir){
@@ -1032,19 +1012,12 @@ int FSMkDir(char *pathname, short current_dir){
     short inum = create_file(filename, parent_inum, INODE_DIRECTORY);
     if(inum == ERROR)
 	return ERROR;
-    struct dir_entry dot;
-    struct dir_entry dotdot;
-    
-    
-    char* strdot = ".";
-    memcpy(dot.name, strdot, strlen(strdot));
-    dot.name[strlen(strdot)] = '\0';
-    dot.inum = inum;
 
+    char* strdot = ".";
     char* strdotdot = "..";
-    memcpy(dotdot.name, strdotdot, strlen(strdotdot));
-    dotdot.name[strlen(strdotdot)] = '\0';
-    dotdot.inum = parent_inum;
+
+    struct dir_entry dot = create_entry(inum, strdot);
+    struct dir_entry dotdot = create_entry(parent_inum, strdotdot);
 
     add_directory_entry(inum, dot);
     add_directory_entry(inum, dotdot);
@@ -1053,20 +1026,48 @@ int FSMkDir(char *pathname, short current_dir){
 }
 
 int FSRmDir(char *pathname, short current_dir){
+
+    if(strcmp(pathname, "/") * strcmp(pathname, ".") * strcmp(pathname, "..") == 0){
+	fprintf(stderr, "ERROR: attempting to remove protected path name\n");
+	return ERROR;
+    }
     
     short inum = convert_pathname_to_inode_number(pathname, current_dir);
-    short parent_inum = get_parent_inum(pathname, current_dir);
-    
     struct inode_info* info = read_inode_from_disk(inum);
-    info->inode_val->type = INODE_FREE;
-    free_inodes[inum] = FREE;
+    
+    if(info->inode_number == -1 || info->inode_val->type != INODE_DIRECTORY){
+	fprintf(stderr, "ERROR: given pathname is not a valid directory\n");
+	return ERROR;
+    }
+
+    // check to make sure that any entries in directory after . and .. are empty
+    int i;
+    for(i = 2; i < info->inode_val->size / sizeof(struct dir_entry); i++){
+	struct dir_entry entry;
+	FSRead((void*)&entry, sizeof(entry), inum, i * sizeof(entry));
+	if(entry.inum != 0){
+	    fprintf(stderr, "ERROR: cannot remove non-empty directory\n");
+	    return ERROR;
+	}
+    }
+
+    short parent_inum = get_parent_inum(pathname, current_dir);    
     remove_from_dir(parent_inum, inum);
+
+    info->inode_val->type = INODE_FREE;    
+    free_inodes[inum] = FREE;
+    info->dirty = 1;
 
     return 0;
 }
 
 int FSChDir(char *pathname, short current_dir){
-    return 0;
+    short inum = convert_pathname_to_inode_number(pathname, current_dir);
+    if(read_inode_from_disk(inum)->inode_val->type != INODE_DIRECTORY){
+	fprintf(stderr, "ERROR: pathname does not lead to directory\n");
+	return ERROR;
+    }
+    return inum;
 }
 
 int FSStat(char *pathname, struct Stat* statbuf, short current_dir){
@@ -1373,6 +1374,12 @@ int main(int argc, char** argv){
     printf("size of spam2 %d\n", read_inode_from_disk(FSOpen(dir_name2, 0))->inode_val->size);
     printf("size of foo1 %d\n", read_inode_from_disk(FSOpen(dir_name3, 0))->inode_val->size);
     printf("size of foo2 %d\n", read_inode_from_disk(FSOpen(dir_name4, 3))->inode_val->size);
+
+    FSRmDir(dir_name3, 0);
+    print_dir(2);
+
+    FSRmDir(dir_name4, 3);
+    print_dir(3);
 
     Halt();
     
