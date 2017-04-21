@@ -15,7 +15,7 @@ struct Open_File files[MAX_OPEN_FILES];
 
 int num_open_files = 0;
 int files_initialized = 0;
-short current_dir = 0;
+short current_dir = ROOTINODE;
 /*
 void print_bits_short(uint8_t n){
     int i;

@@ -1,6 +1,5 @@
 #include "yfs.h"
 
-
 int calculate_inode_to_block_number(int inode_number) ;
 struct block_info* read_block_from_disk(int block_num);
 int sync();
@@ -174,19 +173,19 @@ int sync() {
 
     while(tmp_inode != NULL) {
 	int inode_number = tmp_inode->inode_number;
-	if(tmp_inode->dirty == 1) {
+	//if(tmp_inode->dirty == 1) {
 	    //The value is dirty.
 	    int block_num_to_write = calculate_inode_to_block_number(inode_number);
 	    struct block_info *tmp = read_block_from_disk(block_num_to_write);
 	    memcpy((void*)(tmp->data + (inode_number - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1)) * INODESIZE), (void*)(tmp_inode->inode_val), INODESIZE);
 	    tmp->dirty = 1;
 	    tmp_inode->dirty = 0;
-	}
+	    //}
 	tmp_inode = tmp_inode->next;
     }
 
     while(tmp_block != NULL) {
-	if(tmp_block->dirty == 1) {
+	//if(tmp_block->dirty == 1) {
 	    //The block is dirty, so write it back.
 	    int sig = WriteSector(tmp_block->block_number, (void*)(tmp_block->data));
 	    if(sig == 0) {
@@ -198,7 +197,7 @@ int sync() {
 	    }
 	    //Marks the current block to not dirty.
 	    tmp_block->dirty = 0;
-	}
+	    //}
 	tmp_block = tmp_block->next;
     }
     return 0;
@@ -837,7 +836,6 @@ int create_file(char* filename, short parent_inum, int type){
 
 void init_free(){
     
-    // TODO: can read_inode_from_disk handle fs_header like this?
     struct inode_info* i_info = read_inode_from_disk(0);
     struct fs_header* header = (struct fs_header*)(i_info->inode_val);
 
@@ -1031,15 +1029,28 @@ int FSChDir(char *pathname, short current_dir){
 }
 
 int FSStat(char *pathname, struct Stat* statbuf, short current_dir){
+    short inum = convert_pathname_to_inode_number(pathname, current_dir);
+    struct inode_info* info = read_inode_from_disk(inum);
+
+    if(info->inode_number == -1){
+	fprintf(stderr, "ERROR: pathname not valid\n");
+	return ERROR;
+    }
+    statbuf->inum = info->inode_number;
+    statbuf->type = info->inode_val->type;
+    statbuf->size = info->inode_val->size;
+    statbuf->nlink = info->inode_val->nlink;
+
     return 0;
 }
 
 int FSSync(void){
-    return 0;
+    return sync();
 }
 
 int FSShutdown(void){
-    return 0;
+    sync();
+    Exit(0);
 }
 
 int Redirect_Call(char* msg, int pid){
@@ -1238,12 +1249,12 @@ int Redirect_Call(char* msg, int pid){
 }
 
 int main(int argc, char** argv){
-    printf("Initialized File System\n");
     
     init();
     init_free();    
     Register(FILE_SERVER);
-
+    printf("Initialized File System\n");
+    
     
     //=======================================================================================
     // test involving manually reading/writing sectors
@@ -1276,6 +1287,20 @@ int main(int argc, char** argv){
     Halt();
     */
     //=======================================================================================
+    /*
+    struct block_info* info = read_block_from_disk(200);
+    char* msg1 = "This should be written\n";
+    memcpy(info->data, msg1, strlen(msg1+1));
+    info->dirty = 1;
+    sync();
+    
+    
+    struct block_info* info2 = read_block_from_disk(200);
+    printf("Msg: %s\n", (char*)info2->data);
+        
+    Halt();
+    */
+    //=======================================================================================
     
     printf("Starting Test 1\n");
     
@@ -1283,7 +1308,7 @@ int main(int argc, char** argv){
     char* dir_name2 = "/spam2";
     char* dir_name3 = "/spam1/foo1";
     char* dir_name4 = "foo2";
-                
+    /*                
     int result1 = FSMkDir(dir_name1, 0);
     int result2 = FSMkDir(dir_name2, 0);
     int result3 = FSMkDir(dir_name3, 0);
@@ -1293,7 +1318,7 @@ int main(int argc, char** argv){
     printf("result %d\n", result2);
     printf("result %d\n", result3);
     printf("result %d\n", result4);
-    
+    */
     sync();
     
     print_dir(1);
@@ -1318,7 +1343,6 @@ int main(int argc, char** argv){
 	Halt();
     }
     
-
     // stand by and simply route messages from here on out
     while(1){
 	char msg[MESSAGE_SIZE];
