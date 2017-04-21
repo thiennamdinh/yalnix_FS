@@ -1,0 +1,34 @@
+#include <stdio.h>
+
+#include <comp421/yalnix.h>
+#include <comp421/iolib.h>
+
+/*
+ * Create empty files named "file00" through "file31" in "/".
+ */
+int
+main()
+{
+	int fd;
+	int i;
+	char name[7];
+
+	for (i = 0; i < 32; i+= 2) {
+	    printf("starting file %d\n", i);
+	    sprintf(name, "file%02d", i);
+	    fd = Open(name);
+	    char* msg = "Hello, world! It's a great day to be writing yalnix file systems\n";
+	    int j;
+	    while(1){
+		char read[100];
+		read[0] = '\0';
+		Read(fd, read, 100);
+		printf("%s", read);
+		if(strlen(read) == 0)
+		    break;
+	    }
+	    Close(fd);
+	}
+
+	Shutdown();
+}

@@ -26,7 +26,7 @@
 #	if you have a file named test1.c in this directory.
 #
 
-ALL = yfs iolib.a lib_test test1
+ALL = yfs iolib.a lib_test test1 test2 sample1 sample2 tcreate tcreate2 tlink tls topen2 tsymlink tunlink2 writeread
 
 #
 #	You must modify the YFS_OBJS and YFS_SRCS definitions below.

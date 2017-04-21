@@ -236,8 +236,8 @@ int sync() {
 		tmp_block->dirty = 0;
 	    
 	    }else{
-		printf("An error is generated when doing WriteSector.\n");
-		return -1;
+		printf("ERROR: WriteSector call failed.\n");
+		return ERROR;
 	    }
 	    //Marks the current block to not dirty.
 	    tmp_block->dirty = 0;
@@ -646,41 +646,53 @@ void print_dir(int dir_inum){
     int i;
     for(i = 0; i < num_entries; i++){
 	FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry));
-       	printf("%d - %s\n", entry.inum, entry.name); 
+       	printf("%d - %s\n", entry.inum, entry.name);
     }
     printf("----------------------\n\n");
 }
 
-int get_free_inode(){
-    int i ;
-    for ( i = 0; i < NUM_INODES; ++i){
-	/* code */
-	if(free_inodes[i] == FREE) {
-	    return i;
-	}
+
+void print_file_blocks(short inum){
+    struct inode_info* info = read_inode_from_disk(inum);
+    int num_blocks = info->inode_val->size / BLOCKSIZE;
+
+    printf("---- Blocks allocated for file %d -----\n", inum);
+
+    int i;
+    for(i = 0; i < num_blocks && i < NUM_DIRECT; i++){
+	printf("%d : %d\n", i, info->inode_val->direct[i]);
     }
-    return -1;
+
+    if(i >= num_blocks)
+	return;
+
+    struct block_info* indirect_info = read_block_from_disk(info->inode_val->indirect);
+    int* indirect = (int*)indirect_info->data;
+    for(; i < num_blocks; i++){
+	printf("%d : %d\n", i, indirect[i-NUM_DIRECT]);	
+    }
 }
+
 int get_free_block() {
     int i ;
     for ( i = 0; i < NUM_BLOCKS; ++i){
-	/* code */
 	if(free_blocks[i] == FREE) {
+	    free_blocks[i] = TAKEN;	    
 	    return i;
 	}
+
     }
     
     // if no free blocks found, attempt to claim blocks from deleted files
     init_free();
-
     for ( i = 0; i < NUM_BLOCKS; ++i){
-	/* code */
 	if(free_blocks[i] == FREE) {
 	    return i;
 	}
     }
 
-    return -1;
+    fprintf(stderr, "ERROR: No space left on file system\n");
+    return ERROR;
 }
 
 // allocate space for the file_inode to hold up to "newsize" data
@@ -699,32 +711,35 @@ int grow_file(struct inode_info* info, int newsize){
         while(current < BLOCKSIZE * NUM_DIRECT && current < newsize){
 	    // assign a new block in direct
 	    int free_block = get_free_block();
-	    if(free_block == -1) {
-		return -1;
+	    if(free_block == ERROR) {
+		return ERROR;
 	    }
 	    file_inode->direct[current / BLOCKSIZE] = free_block;
-	    free_blocks[free_block] = TAKEN;
 	    current += BLOCKSIZE;
         }
     }
     
+    // If this is the first time growing into indirect size then allocate indirect block
+    if(current < newsize && current == BLOCKSIZE * NUM_DIRECT){
+        int new_direct = get_free_block();
+	if(new_direct == ERROR)
+	    return ERROR;
+	file_inode->indirect = new_direct;
+    }
+
     // if direct blocks not enough, then access indirect blocks
     if(current < newsize){
 	int big_block_num = file_inode->indirect;
 	struct block_info * block_indirect = read_block_from_disk(big_block_num);
 	block_indirect->dirty = 1;
 	int * int_array = (int*)(block_indirect->data);
-	while(current < BLOCKSIZE * NUM_DIRECT && current < newsize ) {
-	    int i;
-	    for (i = 0; i < BLOCKSIZE; ++i){
-		int free_block = get_free_block();
-		if(free_block == -1) {
-		    return ERROR;
-		}
-		free_blocks[free_block] = TAKEN;
-		int_array[i] = free_block;
-		free_blocks[free_block] = TAKEN;
-         }
+	
+        while(current < BLOCKSIZE * (NUM_DIRECT + BLOCKSIZE / sizeof(int)) && current < newsize ) {
+	    int free_block = get_free_block();
+	    if(free_block == ERROR) {
+		return ERROR;
+	    }
+	    int_array[current / BLOCKSIZE - NUM_DIRECT] = free_block;
 	    current += BLOCKSIZE;
 	}
     }
@@ -752,11 +767,11 @@ char* get_data_at_position(struct inode_info* info, int position, int set_dirty)
 
     // if position is within indirect blocks
     struct block_info* indirect_info = read_block_from_disk(file_inode->indirect);
-    int target_num = (long)(indirect_info->data) + (file_block_num - NUM_DIRECT);
-    
+    int target_num = ((int*)(indirect_info->data))[file_block_num - NUM_DIRECT];
+
     struct block_info* target_info = read_block_from_disk(target_num);
     target_info->dirty = set_dirty;
-    return target_info->data + position % BLOCKSIZE;
+    return ((char*)(target_info->data)) + position % BLOCKSIZE;
 }
 
 int add_directory_entry(short dir_inum, struct dir_entry new_entry){
@@ -966,26 +981,22 @@ int FSRead(void *buf, int size, short inode, int position){
 	return ERROR;
     }
     struct inode* file_inode = info->inode_val;
+
     int offset = 0;
     // keep reading while buf is not full and we have not reached the end of the file
     while(offset < size && position + offset < file_inode->size){
-	Pause();
         char* data = get_data_at_position(info, position + offset, 0);
-
-	// readable size is min of space left in current block and size left in buffer
-	int readable_size = BLOCKSIZE;
-	if((position + offset) % BLOCKSIZE != 0)
-	    readable_size = (position + offset) % BLOCKSIZE;
+	// readable size is min of space left in the block, buffer, and file
+	int readable_size = readable_size = BLOCKSIZE - (position + offset) % BLOCKSIZE;
 	if(size - offset < readable_size)
 	    readable_size = size - offset;
 	if(file_inode->size - (position + offset) < readable_size)
 	    readable_size = file_inode->size - (position + offset);
-	
 	memcpy(buf + offset, data, readable_size);
 	offset += readable_size;
     }
-
-    return 0;
+    
+    return offset;
 }
 
 int FSWrite(void *buf, int size, short inum, int position){
@@ -1002,21 +1013,18 @@ int FSWrite(void *buf, int size, short inum, int position){
     }
 
     int offset = 0;
-    // write over existing data first
- 
     while(offset < size && position + offset < info->inode_val->size){
-        char* data = get_data_at_position(info, position + offset, 1);
-	// writeable size is min of blocksize, space left in buf, and space left in file
-	int writeable_size = BLOCKSIZE;
-	if((position + offset) % BLOCKSIZE != 0)
-	    writeable_size = (position + offset) % BLOCKSIZE;
+	char * data = get_data_at_position(info, position + offset, 1);
+
+	// writeable size is min of blocksize and space left in the buf
+	int writeable_size = BLOCKSIZE - (position + offset) % BLOCKSIZE;
 	if(size - offset < writeable_size)
 	    writeable_size = size - offset;
 
 	memcpy(data, buf + offset, writeable_size);
 	offset += writeable_size;
     }
-    return 0;
+    return offset;
 }
 
 // This just returns the size of a given file... it's only necessary for a particular case of
@@ -1172,8 +1180,9 @@ int FSSync(void){
 }
 
 int FSShutdown(void){
-    sync();
-    Exit(0);
+    print_file_blocks(2);
+    sync(); 
+    return 0;
 }
 
 int Redirect_Call(char* msg, int pid){
@@ -1191,7 +1200,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
 	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
-	    char* pathname = (char*)malloc(upathname_size + 1);
+	    char* pathname = (char*)calloc(upathname_size + 1, sizeof(char));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSOpen(pathname, ucurrent_dir);
 	    free(pathname);
@@ -1203,7 +1212,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
 	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
-	    char* pathname = (char*)malloc(upathname_size + 1);
+	    char* pathname = (char*)calloc(upathname_size + 1, sizeof(char));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSCreate(pathname, ucurrent_dir);
 	    free(pathname);
@@ -1216,7 +1225,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&uinode, current += sizeof(usize), sizeof(uinode));
 	    memcpy(&uposition, current += sizeof(uinode), sizeof(uposition));
  
-	    char* buf = malloc(usize + 1);
+	    char* buf = calloc(usize + 1, sizeof(char));
 	    result = FSRead(buf, usize, uinode, uposition);
 	    CopyTo(pid, ubuf, buf, usize + 1);
 	    free(buf);
@@ -1229,7 +1238,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&uinode, current += sizeof(usize), sizeof(uinode));
 	    memcpy(&uposition, current += sizeof(uinode), sizeof(uposition));
 
-	    char* buf = malloc(usize + 1);
+	    char* buf = calloc(usize + 1, sizeof(char));
 	    CopyFrom(pid, buf, ubuf, usize + 1);
 	    result = FSWrite(buf, usize, uinode, uposition);
 	    free(buf);
@@ -1250,8 +1259,8 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&unewname_size, current += sizeof(unewname), sizeof(unewname_size));
 	    memcpy(&ucurrent_dir, current += sizeof(unewname_size), sizeof(ucurrent_dir));
 
-	    char* oldname = malloc(uoldname_size + 1);
-	    char* newname = malloc(unewname_size + 1);
+	    char* oldname = calloc(uoldname_size + 1, sizeof(char));
+	    char* newname = calloc(unewname_size + 1, sizeof(char));
 	    CopyFrom(pid, oldname, uoldname, uoldname_size + 1);
 	    CopyFrom(pid, newname, unewname, unewname_size + 1);
 	    result = FSLink(oldname, newname, ucurrent_dir);
@@ -1263,7 +1272,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
 	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
-	    char* pathname = (char*)malloc(upathname_size + 1);
+	    char* pathname = (char*)calloc(upathname_size + 1, sizeof(char));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSUnlink(pathname, ucurrent_dir);
 	    free(pathname);
@@ -1278,8 +1287,8 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&unewname_size, current += sizeof(unewname), sizeof(unewname_size));
 	    memcpy(&ucurrent_dir, current += sizeof(unewname_size), sizeof(ucurrent_dir));
 
-	    char* oldname = malloc(uoldname_size + 1);
-	    char* newname = malloc(unewname_size + 1);
+	    char* oldname = calloc(uoldname_size + 1, sizeof(char));
+	    char* newname = calloc(unewname_size + 1, sizeof(char));
 	    CopyFrom(pid, oldname, uoldname, uoldname_size + 1);
 	    CopyFrom(pid, newname, unewname, unewname_size + 1);
 	    result = FSSymLink(oldname, newname, ucurrent_dir);
@@ -1293,8 +1302,8 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&ulen, current += sizeof(ubuf), sizeof(ulen));
 	    memcpy(&ucurrent_dir, current += sizeof(ulen), sizeof(ucurrent_dir));
 
-	    char* pathname = malloc(upathname_size + 1);
-	    char* buf = malloc(ulen + 1);
+	    char* pathname = calloc(upathname_size + 1, sizeof(char));
+	    char* buf = calloc(ulen + 1, sizeof(char));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSReadLink(pathname, buf, ulen, ucurrent_dir);
 	    CopyTo(pid, ubuf, buf, ulen + 1);
@@ -1308,7 +1317,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
 	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
-	    char* pathname = (char*)malloc(upathname_size + 1);
+	    char* pathname = (char*)calloc(upathname_size + 1, sizeof(char));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSMkDir(pathname, ucurrent_dir);
 	    free(pathname);
@@ -1320,7 +1329,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
 	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
-	    char* pathname = (char*)malloc(upathname_size + 1);
+	    char* pathname = (char*)calloc(upathname_size + 1, sizeof(char));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSRmDir(pathname, ucurrent_dir);
 	    free(pathname);
@@ -1332,7 +1341,7 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&upathname_size, current += sizeof(upathname), sizeof(upathname_size));
 	    memcpy(&ucurrent_dir, current += sizeof(upathname_size), sizeof(ucurrent_dir));
 
-	    char* pathname = (char*)malloc(upathname_size + 1);
+	    char* pathname = (char*)calloc(upathname_size + 1, sizeof(char));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSChDir(pathname, ucurrent_dir);
 	    free(pathname);
@@ -1345,8 +1354,8 @@ int Redirect_Call(char* msg, int pid){
 	    memcpy(&ustatbuf, current += sizeof(upathname_size), sizeof(ustatbuf));
 	    memcpy(&ucurrent_dir, current += sizeof(ustatbuf), sizeof(ucurrent_dir));
 
-	    char* pathname = (char*)malloc(upathname_size + 1);
-	    struct Stat* statbuf = (struct Stat*)malloc(sizeof(struct Stat));
+	    char* pathname = (char*)calloc(upathname_size + 1, sizeof(char));
+	    struct Stat* statbuf = (struct Stat*)calloc(1, sizeof(struct Stat));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSStat(pathname, statbuf, ucurrent_dir);
 	    CopyTo(pid, ustatbuf, statbuf, sizeof(statbuf));
@@ -1360,6 +1369,18 @@ int Redirect_Call(char* msg, int pid){
 	}
 	case CODE_SHUTDOWN:{
 	    result = FSShutdown();
+	    if(result == 0){
+		// clean msg
+		int i;
+		for(i = 0; i < MESSAGE_SIZE; i++){
+		    msg[i] = '\0';
+		}
+		// copy in result and reply
+		memcpy(msg, &result, sizeof(result));
+		Reply(msg, pid);      
+		printf("\nShutdown request successful. Terminating Yalnix File System.\n");
+		Exit(0);
+	    }
 	    break;
 	}
 	default:{
@@ -1377,6 +1398,8 @@ int main(int argc, char** argv){
     init_free();    
     Register(FILE_SERVER);
     printf("Initialized File System\n");
+
+    print_dir(1);
     
     //=======================================================================================
     // test involving manually reading/writing sectors
@@ -1423,7 +1446,7 @@ int main(int argc, char** argv){
       Halt();
     */
     //=======================================================================================
-    
+    /*
     printf("Starting Test 1\n");
     
     char* dir_name1 = "/spam1";
@@ -1463,7 +1486,7 @@ int main(int argc, char** argv){
     
 
     Halt();
-    
+    */
     //=======================================================================================
     // actual main method
 
