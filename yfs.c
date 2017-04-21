@@ -1,9 +1,5 @@
 #include "yfs.h"
 
-int calculate_inode_to_block_number(int inode_number) ;
-struct block_info* read_block_from_disk(int block_num);
-int sync();
-
 void Print() {
    struct block_info* temp = block_front;
    while(temp != NULL) {
@@ -442,7 +438,6 @@ void set_lru_inode(int inode_num, struct inode_info* input_inode) {
       return;
    }else{
 
-
       remove_queue_inode(get_inode(inode_num)->inode_data);
       enqueue_inode(input_inode);
       put_inode_to_hashtable(inode_num, input_inode);
@@ -472,6 +467,34 @@ int check_dir(int dir_inum, char* filename){
     }
     return 0;
 }
+
+int remove_from_dir(int dir_inum, int file_inum){
+    struct inode_info* info = read_inode_from_disk(dir_inum);
+    if(info->inode_number == ERROR){
+	fprintf(stderr, "ERROR: could not read directory\n");
+	return ERROR;
+    }
+
+    struct dir_entry entry;
+    int num_entries = info->inode_val->size / sizeof(struct dir_entry);
+    
+    int i;
+    for(i = 0; i < num_entries; i++){
+	if(FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry)) == ERROR){
+	    return ERROR;
+	}
+	if(file_inum == entry.inum){
+	    struct dir_entry blank;
+	    *blank.name = '\0';
+	    blank.inum = 0;
+	    FSWrite((void*)&blank, sizeof(blank), dir_inum, i * sizeof(struct dir_entry));
+	    return 0;
+	}
+	//TODO need to take care of case where filename == DIRNAMELEN
+    }
+    return ERROR;
+}
+
 
 int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
     if(pathname == NULL ) {
@@ -561,7 +584,6 @@ void print_dir(int dir_inum){
     printf("----------------------\n\n");
 }
 
-
 /*
 int check_dir(int direct_inum, char* filename) {
     struct inode_info* dir = read_inode_from_disk(direct_inum);
@@ -620,24 +642,33 @@ int check_dir(int direct_inum, char* filename) {
 */
 int get_free_inode(){
     int i ;
-    for ( i = 0; i < NUM_INODES; ++i)
-	{
-	    /* code */
-	    if(free_inodes[i] == FREE) {
-		return i;
-	    }
+    for ( i = 0; i < NUM_INODES; ++i){
+	/* code */
+	if(free_inodes[i] == FREE) {
+	    return i;
 	}
+    }
     return -1;
 }
 int get_free_block() {
     int i ;
-    for ( i = 0; i < NUM_BLOCKS; ++i)
-	{
-	    /* code */
-	    if(free_blocks[i] == FREE) {
-		return i;
-	    }
+    for ( i = 0; i < NUM_BLOCKS; ++i){
+	/* code */
+	if(free_blocks[i] == FREE) {
+	    return i;
 	}
+    }
+    
+    // if no free blocks found, attempt to claim blocks from deleted files
+    init_free();
+
+    for ( i = 0; i < NUM_BLOCKS; ++i){
+	/* code */
+	if(free_blocks[i] == FREE) {
+	    return i;
+	}
+    }
+
     return -1;
 }
 
@@ -852,6 +883,7 @@ void init_free(){
     for (i = 0; i < NUM_INODES; ++i){
 	free_inodes[i] = FREE;
     }
+
     free_inodes[0] = TAKEN;  // fs_header inode is taken   
     free_inodes[1] = TAKEN;  // root inode taken   
     free_blocks[0] = TAKEN;  // boot block is taken
@@ -1021,6 +1053,15 @@ int FSMkDir(char *pathname, short current_dir){
 }
 
 int FSRmDir(char *pathname, short current_dir){
+    
+    short inum = convert_pathname_to_inode_number(pathname, current_dir);
+    short parent_inum = get_parent_inum(pathname, current_dir);
+    
+    struct inode_info* info = read_inode_from_disk(inum);
+    info->inode_val->type = INODE_FREE;
+    free_inodes[inum] = FREE;
+    remove_from_dir(parent_inum, inum);
+
     return 0;
 }
 
@@ -1308,6 +1349,7 @@ int main(int argc, char** argv){
     char* dir_name2 = "/spam2";
     char* dir_name3 = "/spam1/foo1";
     char* dir_name4 = "foo2";
+
     /*                
     int result1 = FSMkDir(dir_name1, 0);
     int result2 = FSMkDir(dir_name2, 0);
@@ -1319,6 +1361,7 @@ int main(int argc, char** argv){
     printf("result %d\n", result3);
     printf("result %d\n", result4);
     */
+
     sync();
     
     print_dir(1);
@@ -1368,7 +1411,6 @@ int main(int argc, char** argv){
 	// copy in result and reply
 	memcpy(msg, &result, sizeof(result));
 	Reply(msg, pid);      
-    }
-    
+    }   
     return 0;
 }

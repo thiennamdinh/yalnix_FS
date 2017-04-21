@@ -92,6 +92,11 @@ struct inode_wrap* inode_hashtable[SIZE];
 struct inode_wrap* default_inode_wrap;
 struct inode_info* default_inode_info;
 
+int calculate_inode_to_block_number(int inode_number) ;
+struct block_info* read_block_from_disk(int block_num);
+int sync();
+
+void init_free();
 int FSOpen(char *pathname, short current_dir);
 int FSCreate(char *pathname, short current_dir);
 int FSRead(void *buf, int size, short inode, int position);
