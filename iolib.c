@@ -1,10 +1,6 @@
 #include "yfs.h"
 
-// TODO: clean pathnames before passing to YFS
-//     take care of "//"
-//     make sure less than MAXPATHNAMELEN
-
-// TODO: enable relative path names by tracking current directory and sending inode to YFS
+// TODO: make sure less than MAXPATHNAMELEN
 
 struct Open_File {
     short inode;
@@ -276,7 +272,6 @@ int Seek(int fd, int offset, int whence){
 }
 
 int Link(char *oldname, char *newname){
-    
     char* tmp1 = oldname;
     oldname = (char*)malloc(strlen(oldname) + 2);
     int oldname_size = format_pathname(tmp1, oldname);
@@ -319,7 +314,9 @@ int SymLink(char *oldname, char *newname){
     int result = CallYFS(CODE_SYMLINK, args, arg_sizes, 5);
     free(oldname);
     free(newname);
-    return result;
+    if(result == ERROR)
+	return ERROR;
+    return 0;
 }
 
 int ReadLink(char *pathname, char *buf, int len){

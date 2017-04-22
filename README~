@@ -1,0 +1,9 @@
+td18 Thien-Nam Dinh
+zh7  Ziqi Hong
+
+--------------------------------------------------------------------
+
+- All the test we used are the folder "tests"
+  - not linked to the make file
+- We built our own cache; all related methods are in "cache.c"
+- Everything *should* be working

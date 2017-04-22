@@ -1,505 +1,5 @@
 #include "yfs.h"
 
-void Print() {
-
-    printf("\n---- Inode hashmap -----\n");
-    int i = 0;
-    for(i = 0; i < INODE_CACHESIZE; i++){
-	struct inode_wrap* elm = inode_hashtable[i];
-	if(inode_hashtable[i] != NULL)
-	    printf("Index %d - Key: %d, Pointer: %ld\n", i, elm->key, (long)elm->inode_data);
-    }
-    printf("\n---- Inode linked list -----\n");
-    struct inode_info* temp1 = inode_front;
-    while(temp1 != NULL) {
-	printf("Inode Number: %d Pointer: %ld\n", temp1->inode_number, (long)temp1);
-	temp1 = temp1->next;
-    } 
-    printf("\n");
-
-
-    printf("\n---- Block hashmap -----\n");
-    for(i = 0; i < BLOCK_CACHESIZE; i++){
-	struct block_wrap* elm = block_hashtable[i];
-	if(block_hashtable[i] != NULL)
-	    printf("Index %d - Key: %d, Pointer: %ld Dirty? %d\n", i, elm->key,
-		   (long)elm->block_data, elm->block_data->dirty);
-    }
-    printf("\n---- Block linked list -----\n");
-    struct block_info* temp2 = block_front;
-    while(temp2 != NULL) {
-	printf("Block Number: %d Pointer: %ld Dirty? %d\n", temp2->block_number, (long)temp2,
-	       temp2->dirty);
-	temp2 = temp2->next;
-    } 
-    printf("\n");
-}
-
-void init() {
-    current_blockcache_number = 0;
-    block_front = NULL;
-    block_rear = NULL;
-    default_block_wrap = (struct block_wrap*) malloc(sizeof(struct block_wrap));
-    default_block_wrap->key = -1;
-
-    default_block_info = (struct block_info*) malloc(sizeof(struct block_info));
-    default_block_info->block_number = -1;
-
-    current_inodecache_number = 0;
-    inode_front = NULL;
-    inode_rear = NULL;
-    default_inode_wrap = (struct inode_wrap*) malloc(sizeof(struct inode_wrap));
-    default_inode_wrap->key = -1;
-
-    default_inode_info = (struct inode_info*) malloc(sizeof(struct inode_info));
-    default_inode_info->inode_number = -1;
-
-    default_inode_wrap->inode_data = default_inode_info;
-
-    //adding for loop to initialize to null
-    int i;
-    for(i = 0; i < INODE_CACHESIZE; i++){
-	inode_hashtable[i] = NULL;
-    }
-    for(i = 0; i < BLOCK_CACHESIZE; i++){
-	block_hashtable[i] = NULL;
-    }
-}
-
-int calculate_inode_to_block_number(int inode_number) {
-    return 1 + (inode_number / (BLOCKSIZE / INODESIZE));
-}
-
-int generate_hash_code_inode(int key) {
-    //Hash code generator.
-    return key % INODE_CACHESIZE;
-}
-
-int generate_hash_code_block(int key) {
-    //Hash code generator.
-    return key % BLOCK_CACHESIZE;
-}
-
-struct block_wrap *get_block(int key) {
-    //Obtains the hash code.
-    int hash_index = generate_hash_code_block(key);  
-    int start = hash_index;
-
-    while(block_hashtable[hash_index] != NULL) {
-	if(block_hashtable[hash_index]->key == key){
-	    return block_hashtable[hash_index]; 
-	}
-			
-	++hash_index;
-		
-	hash_index %= BLOCK_CACHESIZE;
-
-	// made a full circle without finding an opening
-	if(hash_index == start)
-	    return NULL;
-    }        
-	
-    return NULL;        
-}
-
-void put_block_to_hashtable(int key, struct block_info* data_input) {
-
-    struct block_wrap *item = (struct block_wrap*) malloc(sizeof(struct block_wrap));
-    item->block_data = data_input;
-    item->key = key;
-
-    int hash_index = generate_hash_code_block(key);
-
-    while(block_hashtable[hash_index] != NULL && block_hashtable[hash_index]->key != -1) {
-	++hash_index;
-		
-	hash_index %= BLOCK_CACHESIZE;
-    }
-	
-    block_hashtable[hash_index] = item;
-}
-
-struct block_wrap* remove_block_from_hashtable(int block_num) {
-
-    int hash_index = generate_hash_code_block(block_num);
-    int start = hash_index;
-
-    while(block_hashtable[hash_index] != NULL) {
-	
-	if(block_hashtable[hash_index]->key == block_num) {
-	    struct block_wrap* temp = block_hashtable[hash_index]; 
-			
-	    block_hashtable[hash_index] = default_block_wrap; 
-
-	    return temp;
-	}
-		
-	++hash_index;
-		
-	hash_index %= BLOCK_CACHESIZE;
-      
-	// made full circule without finding opening
-	if(hash_index == start)
-	    return NULL;
-    }      
-	
-    return NULL;        
-}
-
-void enqueue_block(struct block_info * x) {
-    //Puts to end.
-    if(block_front == NULL && block_rear == NULL){
-	block_front = block_rear = x;
-	block_front->prev = NULL;
-	block_rear->next = NULL;
-	return;
-    }
-    block_rear->next = x;
-    x->prev = block_rear;
-    block_rear = x;
-    block_rear->next = NULL;
-    block_front->prev = NULL;
-}
-
-void dequeue_block() {
-    //Eliminate the block_front;
-    if(block_front == NULL) {
-	printf("Queue is Empty\n");
-	return;
-    }
-    if(block_front == block_rear) {
-	block_front = block_rear = NULL;
-    }else {
-	block_front->next->prev = NULL;
-	block_front = block_front->next;
-	block_front->prev = NULL;
-    }
-
-}
-
-void remove_queue_block(struct block_info * x) {
-    if(x->prev != NULL && x->next != NULL){
-	x->prev->next = x->next;
-	x->next->prev = x->prev;
-	x->prev = NULL;
-	x->next = NULL;
-    }else if(x->prev != NULL && x->next == NULL) {
-	block_rear = block_rear->prev;
-	block_rear->next = NULL;
-	x->prev = NULL;
-	x->next = NULL;
-    }else if(x->prev == NULL && x->next != NULL) {
-	dequeue_block();
-	x->prev = NULL;
-	x->next = NULL;
-    }
-}
-
-
-struct block_info* get_lru_block(int block_num) {
-    struct block_wrap* result = get_block(block_num);
-    if(result == NULL) {
-	return default_block_info;
-    }else{
-	//Recently used.
-	remove_queue_block(result->block_data);
-	enqueue_block(result->block_data);
-	// put_to_block_front(result);
-
-	return result->block_data;
-    }
-}
-
-int sync() {
-    //Write everything back to the disk. Syncs everything.
-    struct inode_info* tmp_inode = inode_front;
-    struct block_info* tmp_block = block_front;
-
-    while(tmp_inode != NULL) {
-	int inode_number = tmp_inode->inode_number;
-	if(tmp_inode->dirty == 1) {
-	    //The value is dirty.
-	    int block_num_to_write = calculate_inode_to_block_number(inode_number);
-	    struct block_info *tmp = read_block_from_disk(block_num_to_write);
-	    memcpy((void*)(tmp->data + (inode_number - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1)) * INODESIZE), (void*)(tmp_inode->inode_val), INODESIZE);
-	    tmp->dirty = 1;
-	    tmp_inode->dirty = 0;
-	}
-	tmp_inode = tmp_inode->next;
-    }
-    
-    while(tmp_block != NULL) {
-	if(tmp_block->dirty == 1) {
-	    //The block is dirty, so write it back.
-	    int sig = WriteSector(tmp_block->block_number, (void*)(tmp_block->data));
-	    if(sig == 0) {
-		tmp_block->dirty = 0;
-	    
-	    }else{
-		printf("ERROR: WriteSector call failed.\n");
-		return ERROR;
-	    }
-	    //Marks the current block to not dirty.
-	    tmp_block->dirty = 0;
-	}
-	tmp_block = tmp_block->next;
-    }
-    return 0;
-}
-
-
-void evict_block(){
-    //Test whether there is a key to be evict_blocked.
-    if(current_blockcache_number >= BLOCK_CACHESIZE) {
-	int to_be_removed_key = block_front->block_number;
-	//Here should be another method sync to write inode back to the disk.
-	sync();
-	if(block_front->dirty == 1) {
-	    int sig = WriteSector(block_front->block_number, (void*)(block_front->data));
-	    if(sig == 0) {
-         	printf("An error is generated when doing WriteSector.\n");
-	    }
-	}
-	dequeue_block();
-	remove_block_from_hashtable(to_be_removed_key);
-	//Decrement the current block cache number by 1.
-	current_blockcache_number--;
-    }
-}
-
-void set_lru_block(int block_num, struct block_info* input_block) {
-    if(get_block(block_num) == NULL) {
-	// printf("Key not found\n");
-	//Determines whether a key needs to be removed.
-	evict_block();
-	enqueue_block(input_block);
-	put_block_to_hashtable(block_num, input_block);
-	current_blockcache_number++;
-	return;
-    }else{
-
-	remove_queue_block(get_block(block_num)->block_data);
-	enqueue_block(input_block);
-	put_block_to_hashtable(block_num, input_block);
-
-	return;
-    }
-
-}
-
-
-//Inode functions
-
-struct inode_wrap *get_inode(int key) {
-    //Obtains the hash code.
-    int hash_index = generate_hash_code_inode(key);  
-    int start = hash_index;
-    while(inode_hashtable[hash_index] != NULL) {
-	if(inode_hashtable[hash_index]->key == key){
-	    return inode_hashtable[hash_index]; 
-	}
-         
-	++hash_index;
-      
-	hash_index %= INODE_CACHESIZE;
-      
-	//made a full circle but couldn't find an opening
-	if(hash_index == start)
-	    return NULL;
-    }        
-   
-    return NULL;        
-}
-
-void put_inode_to_hashtable(int key, struct inode_info* data_input) {
-
-    struct inode_wrap *item = (struct inode_wrap*) malloc(sizeof(struct inode_wrap));
-    item->inode_data = data_input;
-    item->key = key;
-
-    int hash_index = generate_hash_code_inode(key);
-
-    while(inode_hashtable[hash_index] != NULL && inode_hashtable[hash_index]->key != -1) {
-	++hash_index;
-      
-	hash_index %= INODE_CACHESIZE;
-    }
-   
-    inode_hashtable[hash_index] = item;
-}
-
-struct inode_wrap* remove_inode_from_hashtable(int inode_num) {
-
-    int hash_index = generate_hash_code_inode(inode_num);
-    int start = hash_index;
-
-    while(inode_hashtable[hash_index] != NULL) {
-	if(inode_hashtable[hash_index]->key == inode_num) {
-	    struct inode_wrap* temp = inode_hashtable[hash_index]; 
-         
-	    inode_hashtable[hash_index] = default_inode_wrap; 
-
-	    return temp;
-	}
-      
-	++hash_index;
-      
-	hash_index %= INODE_CACHESIZE;
-      
-	// made full circle without finding an opening
-	if(hash_index == start)
-	    return NULL;
-    }      
-   
-    return NULL;        
-}
-
-void enqueue_inode(struct inode_info * x) {
-    //Puts to end.
-    if(inode_front == NULL && inode_rear == NULL){
-	inode_front = inode_rear = x;
-	inode_front->prev = NULL;
-	inode_rear->next = NULL;
-	return;
-    }
-    inode_rear->next = x;
-    x->prev = inode_rear;
-    inode_rear = x;
-    inode_rear->next = NULL;
-}
-
-
-void dequeue_inode() {
-    //Eliminate the inode_front;
-    if(inode_front == NULL) {
-	printf("Queue is Empty\n");
-	return;
-    }
-    if(inode_front == inode_rear) {
-	inode_front = inode_rear = NULL;
-    }else {
-	inode_front->next->prev = NULL;
-	inode_front = inode_front->next;
-	inode_front->prev = NULL;
-    }
-
-}
-
-void remove_queue_inode(struct inode_info * x) {
-    if(x->prev != NULL && x->next != NULL){
-	x->prev->next = x->next;
-	x->next->prev = x->prev;
-	x->next = NULL;
-	x->prev = NULL;
-    }else if(x->prev != NULL && x->next == NULL) {
-	inode_rear = inode_rear->prev;
-	inode_rear->next = NULL;
-	x->next = NULL;
-	x->prev = NULL;
-    }else if(x->prev == NULL && x->next != NULL) {
-	dequeue_inode();
-	x->next = NULL;
-	x->prev = NULL;
-    }
-}
-
-
-struct inode_info* get_lru_inode(int inode_num) {
-    struct inode_wrap* result = get_inode(inode_num);
-    if(result == NULL) {
-	return default_inode_info;
-    }else{
-	//Recently used.
-	remove_queue_inode(result->inode_data);
-	enqueue_inode(result->inode_data);
-	// put_to_inode_front(result);
-	
-	return result->inode_data;
-    }
-}
-
-struct block_info* read_block_from_disk(int block_num) {
-    struct block_info* result = get_lru_block(block_num);
-    if(result->block_number == -1) {
-	//Reads from the disk.
-	result = (struct block_info*)malloc(sizeof(struct block_info));
-        ReadSector(block_num, (void*)(result->data));
-	//Sets the dirty to not dirty
-	result->dirty = 0;
-	result->block_number = block_num;
-	set_lru_block(block_num, result);
-	//To obtain the block_info.
-	return get_lru_block(block_num);
-
-    }else{
-	return result;
-    }
-}
-
-struct inode_info* read_inode_from_disk(int inode_num) {
-    struct inode_info* result = get_lru_inode(inode_num);
-    if(result->inode_number == -1) {
-	int block_num = calculate_inode_to_block_number(inode_num);
-	struct block_info* tmp = get_lru_block(block_num);
-	if(tmp->block_number == -1) {
-	    tmp = read_block_from_disk(block_num);
-	}
-	result = (struct inode_info*) malloc(sizeof(struct inode_info));
-	result->inode_number = inode_num;
-	result->dirty = 0;
-	result->inode_val = (struct inode*)malloc(sizeof(struct inode));
-
-	memcpy((result->inode_val), tmp->data+(inode_num-(block_num-1)*(BLOCKSIZE/INODESIZE)) * INODESIZE, INODESIZE);
-	set_lru_inode(inode_num, result); 
-    }
-    return result;
-}
-
-
-void set_lru_inode(int inode_num, struct inode_info* input_inode) {
-    if(get_inode(inode_num) == NULL) {
-	//Determines whether a key needs to be removed.
-
-	//evicts.
-	//Test whether there is a key to be evict_inodeed.
-	if(current_inodecache_number >= INODE_CACHESIZE) {
-	    int to_be_removed_key = inode_front->inode_number;
-	    //Here should be another method sync to write inode back to the disk.
-
-	    //Remove the key from the hashtable
-	    remove_inode_from_hashtable(to_be_removed_key);
-	    //Should call sync.
-	    sync();
-
-	    if(inode_front->dirty == 1) {
-	      	int block_num_to_write = calculate_inode_to_block_number(to_be_removed_key);
-	      	struct block_info *tmp = read_block_from_disk(block_num_to_write);
-	      	int index = inode_num - (BLOCKSIZE/INODESIZE) * (block_num_to_write - 1);
-	      	memcpy((void*)(tmp->data + index * INODESIZE), (void*)(inode_front->inode_val), INODESIZE);
-	      	tmp->dirty = 1;
-	    }
-
-	    dequeue_inode();
-	    remove_inode_from_hashtable(to_be_removed_key);
-
-
-
-	    //Decrement the current block cache number by 1.
-	    current_inodecache_number--;
-	}
-	enqueue_inode(input_inode);
-	put_inode_to_hashtable(inode_num, input_inode);
-	current_inodecache_number++;
-	return;
-    }else{
-
-	remove_queue_inode(get_inode(inode_num)->inode_data);
-	enqueue_inode(input_inode);
-	put_inode_to_hashtable(inode_num, input_inode);
-	return;
-    }
-}
-
 struct dir_entry create_entry(short inum, char* filename){
     
     struct dir_entry entry;
@@ -527,7 +27,7 @@ int check_dir(int dir_inum, char* filename){
     int num_entries = info->inode_val->size / sizeof(struct dir_entry);
     
     int i;
-    for(i = 1; i < num_entries; i++){
+    for(i = 0; i < num_entries; i++){
 	if(FSRead((void*)&entry, sizeof(entry), dir_inum, i * sizeof(struct dir_entry)) == ERROR){
 	    return ERROR;
 	}
@@ -600,30 +100,37 @@ int convert_pathname_to_inode_number(char *pathname, int proc_inum) {
 	    pathname++;
 	    len_path--;
 	}
-        
 	struct inode_info* n;
         int sub_inum = check_dir(cur_inode, node_name);
-	if (sub_inum<=0) {
+        if (sub_inum<=0) {
 	    fprintf(stderr, "ERROR: failed to parse given path\n");
 	    return ERROR;
 	}
-
 	n = read_inode_from_disk(sub_inum);
 	//If the sub inode is a symbolic link.
 	if(n->inode_val->type == INODE_SYMLINK) {
 	    if(sym_link_cnt >= MAXSYMLINKS) {
+		fprintf(stderr, "ERROR: too many symlinks in pathname\n");
 		return ERROR;
 	    }else{
 		int data_size = n->inode_val->size;
-		char* new_pathname = (char*) malloc(sizeof(char) * data_size + len_path + 1);
+		char* new_pathname = (char*)calloc(sizeof(char) * data_size + len_path + 1, 1);
 		struct block_info* b = read_block_from_disk(n->inode_val->direct[0]);
 		memcpy(new_pathname, b->data, data_size);
-          
-		strcat(new_pathname, "///");
-		strcat(new_pathname, pathname);
+
+		// append the rest of the unprocessed path name
+		if(len_path > 0){
+		    strcat(new_pathname, "/");
+		    strcat(new_pathname, pathname);
+		}
 		pathname = new_pathname;
 
 		sym_link_cnt++;
+		// if symlink points to absolute, then reset current node to root
+		if(new_pathname[0] == '/'){
+		    cur_inode = ROOTINODE;
+		    continue;
+		}
 	    }
 	}
 	cur_inode = sub_inum;
@@ -677,13 +184,13 @@ int get_free_block() {
     int i ;
     for ( i = 0; i < NUM_BLOCKS; ++i){
 	if(free_blocks[i] == FREE) {
-	    free_blocks[i] = TAKEN;	    
+	    free_blocks[i] = TAKEN;
 	    return i;
 	}
 
     }
-    
     // if no free blocks found, attempt to claim blocks from deleted files
+    sync();
     init_free();
     for ( i = 0; i < NUM_BLOCKS; ++i){
 	if(free_blocks[i] == FREE) {
@@ -714,6 +221,11 @@ int grow_file(struct inode_info* info, int newsize){
 	    if(free_block == ERROR) {
 		return ERROR;
 	    }
+
+	    struct block_info* info = read_block_from_disk(free_block);
+	    info->dirty = 1;
+	    memset(info->data, '\0', BLOCKSIZE);
+
 	    file_inode->direct[current / BLOCKSIZE] = free_block;
 	    current += BLOCKSIZE;
         }
@@ -721,10 +233,10 @@ int grow_file(struct inode_info* info, int newsize){
     
     // If this is the first time growing into indirect size then allocate indirect block
     if(current < newsize && current == BLOCKSIZE * NUM_DIRECT){
-        int new_direct = get_free_block();
-	if(new_direct == ERROR)
+        int new_indirect = get_free_block();
+	if(new_indirect == ERROR)
 	    return ERROR;
-	file_inode->indirect = new_direct;
+	file_inode->indirect = new_indirect;
     }
 
     // if direct blocks not enough, then access indirect blocks
@@ -760,8 +272,8 @@ char* get_data_at_position(struct inode_info* info, int position, int set_dirty)
     // if position is within direct blocks
     if(file_block_num < NUM_DIRECT){
 	struct block_info* direct_info = read_block_from_disk(file_inode->direct[file_block_num]);
-	if(direct_info->dirty == 0 && set_dirty == 1)
-	    direct_info->dirty += set_dirty;
+	if(direct_info->dirty != 1 && set_dirty == 1)
+	    direct_info->dirty = set_dirty;
         return direct_info->data + position % BLOCKSIZE;
     }
 
@@ -908,7 +420,6 @@ int create_file(char* filename, short parent_inum, int type){
 	fprintf(stderr, "ERROR: failed to add file to directory\n");
 	return ERROR;
     }
-
     return file_inum;
 }
 
@@ -943,7 +454,8 @@ void init_free(){
     for(i = 1; i < NUM_INODES + 1; i++){
 	struct inode* current_inode = read_inode_from_disk(i)->inode_val;
     
-	if(current_inode->type != INODE_FREE){	    
+	if(current_inode->type != INODE_FREE){
+	    free_inodes[i] = TAKEN;
 	    int j = 0;
 	    // loop through direct blocks
 	    while(j < NUM_DIRECT && j * BLOCKSIZE < current_inode->size){
@@ -954,7 +466,10 @@ void init_free(){
 	    // if file still has more blocks, explore indirect block as well
 	    if(j * BLOCKSIZE < current_inode->size){
 		int* indirect_block = (int*)(read_block_from_disk(current_inode->indirect)->data);
-		while(j * BLOCKSIZE < current_inode->size){
+		free_blocks[current_inode->indirect] = TAKEN;
+		int last_block = (current_inode->size + (BLOCKSIZE-1)) / BLOCKSIZE;
+
+		while(j < last_block){
 		    free_blocks[indirect_block[j - NUM_DIRECT]] = TAKEN;
 		    j++;
 		}
@@ -1039,8 +554,8 @@ int FSSeek(short inode){
 }
 
 int FSLink(char *oldname, char *newname, short current_dir){
+
     short old_inum = convert_pathname_to_inode_number(oldname, current_dir);
-    short new_inum = convert_pathname_to_inode_number(newname, current_dir);
 
     struct inode_info* old_info = read_inode_from_disk(old_inum);
     if(old_info->inode_number == -1 || old_info->inode_val->type == INODE_DIRECTORY){
@@ -1051,12 +566,11 @@ int FSLink(char *oldname, char *newname, short current_dir){
     short parent_inum = get_parent_inum(newname, current_dir);
     char* new_filename = get_filename(newname);
 
-    struct dir_entry entry = create_entry(new_inum, new_filename);
+    struct dir_entry entry = create_entry(old_inum, new_filename);
     add_directory_entry(parent_inum, entry);
 
     old_info->inode_val->nlink++;
     old_info->dirty = 1;
-
     return 0;
 }
 
@@ -1090,7 +604,9 @@ int FSSymLink(char *oldname, char *newname, short current_dir){
 }
 
 int FSReadLink(char *pathname, char *buf, int len, short current_dir){
-    short inum = convert_pathname_to_inode_number(pathname, current_dir);
+    short parent_inum = get_parent_inum(pathname, current_dir);
+    char* filename = get_filename(pathname);
+    short inum = check_dir(parent_inum, filename);
     return FSRead(buf, len, inum, 0);
 }
 
@@ -1104,7 +620,6 @@ int FSMkDir(char *pathname, short current_dir){
     char* strdot = ".";
     char* strdotdot = "..";
     
-
     struct dir_entry dot = create_entry(inum, strdot);
     struct dir_entry dotdot = create_entry(parent_inum, strdotdot);
 
@@ -1162,7 +677,6 @@ int FSChDir(char *pathname, short current_dir){
 int FSStat(char *pathname, struct Stat* statbuf, short current_dir){
     short inum = convert_pathname_to_inode_number(pathname, current_dir);
     struct inode_info* info = read_inode_from_disk(inum);
-
     if(info->inode_number == -1){
 	fprintf(stderr, "ERROR: pathname not valid\n");
 	return ERROR;
@@ -1180,7 +694,6 @@ int FSSync(void){
 }
 
 int FSShutdown(void){
-    print_file_blocks(2);
     sync(); 
     return 0;
 }
@@ -1358,7 +871,7 @@ int Redirect_Call(char* msg, int pid){
 	    struct Stat* statbuf = (struct Stat*)calloc(1, sizeof(struct Stat));
 	    CopyFrom(pid, pathname, upathname, upathname_size + 1);
 	    result = FSStat(pathname, statbuf, ucurrent_dir);
-	    CopyTo(pid, ustatbuf, statbuf, sizeof(statbuf));
+	    CopyTo(pid, ustatbuf, statbuf, sizeof(struct Stat));
 	    free(pathname);
 	    free(statbuf);
 	    break;
@@ -1398,97 +911,6 @@ int main(int argc, char** argv){
     init_free();    
     Register(FILE_SERVER);
     printf("Initialized File System\n");
-
-    print_dir(1);
-    
-    //=======================================================================================
-    // test involving manually reading/writing sectors
-    /*
-      char block[BLOCKSIZE];
-      ReadSector(1, (void*)(block));
-    
-      struct inode tmp_inode;
-      tmp_inode.size = 30;
-      memcpy(block + 1*sizeof(struct inode), &tmp_inode, sizeof(struct inode));
-      WriteSector(1, block);
-
-      struct inode_info* info2 = read_inode_from_disk(2);
-      printf("size of inode %d\n", info2->inode_val->size);
-    
-
-      Halt();
-    */
-    //=======================================================================================
-    // tests involving using read_inode/block_from_disk and syncing for persistence
-    /*
-      struct inode_info* info = read_inode_from_disk(2);
-      info->inode_val->size = 40;
-      info->dirty = 1;
-      sync();
-    
-      struct inode_info* info2 = read_inode_from_disk(2);
-      printf("size of inode %d\n", info2->inode_val->size);
-    
-      Halt();
-    */
-    //=======================================================================================
-    /*
-      struct block_info* info = read_block_from_disk(200);
-      char* msg1 = "This should be written\n";
-      memcpy(info->data, msg1, strlen(msg1+1));
-      info->dirty = 1;
-      sync();
-    
-    
-      struct block_info* info2 = read_block_from_disk(200);
-      printf("Msg: %s\n", (char*)info2->data);
-        
-      Halt();
-    */
-    //=======================================================================================
-    /*
-    printf("Starting Test 1\n");
-    
-    char* dir_name1 = "/spam1";
-    char* dir_name2 = "/spam2";
-    char* dir_name3 = "/spam1/foo1";
-    char* dir_name4 = "foo2";
-
-                
-    int result1 = FSMkDir(dir_name1, 0);
-    int result2 = FSMkDir(dir_name2, 0);
-    int result3 = FSMkDir(dir_name3, 0);
-    int result4 = FSMkDir(dir_name4, 3);
-    
-    //printf("result %d\n", result1);
-    //printf("result %d\n", result2);
-    //printf("result %d\n", result3);
-    //printf("result %d\n", result4);
-    
-    sync();
-    
-    print_dir(1);
-    print_dir(2);
-    print_dir(3);
-    
-    printf("size of root %d\n", read_inode_from_disk(FSOpen("/", 0))->inode_val->size);
-    printf("size of spam1 %d\n", read_inode_from_disk(FSOpen(dir_name1, 0))->inode_val->size);
-    printf("size of spam2 %d\n", read_inode_from_disk(FSOpen(dir_name2, 0))->inode_val->size);
-    printf("size of foo1 %d\n", read_inode_from_disk(FSOpen(dir_name3, 0))->inode_val->size);
-    printf("size of foo2 %d\n", read_inode_from_disk(FSOpen(dir_name4, 3))->inode_val->size);
-    
-    
-    FSRmDir(dir_name3, 0);
-    print_dir(2);
-
-    FSRmDir(dir_name4, 3);
-    print_dir(3);
-    
-
-    Halt();
-    */
-    //=======================================================================================
-    // actual main method
 
     int pid = Fork();
     if(pid == 0){

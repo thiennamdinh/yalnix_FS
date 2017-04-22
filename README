@@ -1,0 +1,15 @@
+td18 Thien-Nam Dinh
+zh7  Ziqi Hong
+
+----------------------------------------------------------------------------
+
+- All the test we used are the folder "tests"
+  - not linked to the make file
+- We built our own cache rather than import one
+  - all related methods are in "cache.c"
+  - separate structures/methods for inode and block
+- Free blocks/inodes are kept in an array of ints and booted at startup
+
+- Everything *should* be functional
+
+----------------------------------------------------------------------------
